@@ -1,0 +1,81 @@
+import 'package:flutter/material.dart';
+import '../models/location.dart';
+import 'address_search.dart';
+
+class SettingsPanel extends StatelessWidget {
+  final AppLocation? homeLocation;
+  final AppLocation? currentLocation;
+  final int threshold;
+  final ValueChanged<AppLocation> onHomeSelected;
+  final VoidCallback onRedetectGps;
+  final ValueChanged<int> onThresholdChanged;
+
+  const SettingsPanel({
+    super.key,
+    required this.homeLocation,
+    required this.currentLocation,
+    required this.threshold,
+    required this.onHomeSelected,
+    required this.onRedetectGps,
+    required this.onThresholdChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 12),
+          AddressSearch(
+            label: 'Home Location',
+            current: homeLocation,
+            onSelected: onHomeSelected,
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Current Location', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text(
+                      currentLocation?.toString() ?? 'Not detected',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: onRedetectGps,
+                icon: const Icon(Icons.gps_fixed, size: 16),
+                label: const Text('Re-detect'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Text('Notification Threshold: '),
+              Expanded(
+                child: Slider(
+                  value: threshold.toDouble(),
+                  min: 10,
+                  max: 50,
+                  divisions: 8,
+                  label: '$threshold%',
+                  onChanged: (v) => onThresholdChanged(v.round()),
+                ),
+              ),
+              Text('$threshold%', style: const TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
