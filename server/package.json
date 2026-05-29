@@ -1,0 +1,24 @@
+{
+  "name": "traffic-builder-server",
+  "version": "1.0.0",
+  "description": "Traffic Builder backend — Express + Socket.io",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/api-server.ts",
+    "build": "tsc",
+    "start": "node dist/api-server.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.2"
+  },
+  "packageManager": "yarn@4.15.0+sha512.07ec708ac11e2eaa4ea2b04cfbb272812f7e74a753f1595eaef4486c663a98306a30cca3e6fc40f7a0b168dcfb3a2490b6a5e0501e20fb69cc36f563dd161c53"
+}
