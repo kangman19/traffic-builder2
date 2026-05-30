@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
+import 'core/network/api_client.dart';
+import 'services/notification_service.dart';
 import 'screens/dashboard_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // AppConfig values are compile-time constants — no file loading needed.
+  // Pass overrides at build time: flutter run --dart-define=BACKEND_BASE_URL=...
+  ApiClient.init();
+  await NotificationService.init();
+
   runApp(const TrafficBuilderApp());
 }
 

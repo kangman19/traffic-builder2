@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../core/network/api_error.dart';
 import '../models/location.dart';
 import '../models/traffic_condition.dart';
 import '../models/traffic_update.dart';
-import '../services/api_service.dart';
+import '../services/session_service.dart';
 import '../services/socket_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
@@ -23,10 +24,10 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _api = ApiService();
+  final _sessionSvc = SessionService();
   final _socket = SocketService();
   final _locationSvc = LocationService();
-  final _notifSvc = NotificationService();
+  final _notifSvc = NotificationService.instance;
 
   AppLocation? _currentLocation;
   AppLocation? _homeLocation;
@@ -41,94 +42,126 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _notifSvc.init();
     _detectLocation();
   }
+
+  // ── Location ─────────────────────────────────────────────────────────────
 
   Future<void> _detectLocation() async {
     final loc = await _locationSvc.getCurrentLocation();
     if (mounted) setState(() => _currentLocation = loc);
   }
 
+  // ── Session lifecycle ─────────────────────────────────────────────────────
+
   Future<void> _startMonitoring() async {
     if (_currentLocation == null) {
-      _showSnack('Could not get your location. Enable GPS and try again.');
+      _showError('Could not get your location. Enable GPS and try again.');
       return;
     }
     if (_homeLocation == null) {
-      _showSnack('Please set your home location first.');
+      _showError('Please set your home location in Settings first.');
       return;
     }
 
     setState(() => _connecting = true);
-    try {
-      await _api.createSession(
-        userId: kUserId,
-        homeLocation: _homeLocation!,
-        currentLocation: _currentLocation!,
-        frequency: _frequencyMinutes,
-      );
 
-      _socket.connect();
-      _socketSub = _socket.updates.listen(_onTrafficUpdate);
+    final (:session, :error) = await _sessionSvc.createSession(
+      userId: kUserId,
+      homeLocation: _homeLocation!,
+      currentLocation: _currentLocation!,
+      frequencyMinutes: _frequencyMinutes,
+    );
 
-      _locationSvc.startTracking((loc) {
-        setState(() => _currentLocation = loc);
-        _api.updateLocation(kUserId, loc);
-      });
-
-      await _notifSvc.showMonitoringNotification();
-
-      setState(() { _monitoring = true; _connecting = false; });
-    } catch (e) {
+    if (error != null || session == null) {
       setState(() => _connecting = false);
-      _showSnack('Failed to start monitoring: $e');
+      _showError(_friendlyErrorMessage(error));
+      return;
     }
+
+    _socket.connect();
+    _socketSub = _socket.updates.listen(_onTrafficUpdate);
+
+    _locationSvc.startTracking((loc) {
+      setState(() => _currentLocation = loc);
+      _sessionSvc.updateLocation(kUserId, loc);
+    });
+
+    await _notifSvc.showMonitoringActive();
+    setState(() {
+      _monitoring = true;
+      _connecting = false;
+    });
   }
 
   Future<void> _stopMonitoring() async {
-    await _api.stopSession(kUserId);
+    await _sessionSvc.stopSession(kUserId);
     _socketSub?.cancel();
     _locationSvc.stopTracking();
-    await _notifSvc.cancelMonitoringNotification();
+    await _notifSvc.cancelMonitoringActive();
     setState(() => _monitoring = false);
   }
+
+  // ── Real-time updates ─────────────────────────────────────────────────────
 
   void _onTrafficUpdate(TrafficUpdate update) {
     setState(() {
       _latestCondition = update.condition;
       if (update.notification != null) {
-        _notifications.insert(0, NotificationEntry(
-          time: DateTime.now(),
-          notification: update.notification!,
-        ));
+        _notifications.insert(
+          0,
+          NotificationEntry(
+            time: DateTime.now(),
+            notification: update.notification!,
+          ),
+        );
       }
     });
 
     if (update.notification != null) {
       final notif = update.notification!;
-      final title = notif.isWorsening ? 'Traffic Building' : 'Traffic Clearing';
-      _notifSvc.showTrafficNotification(title, notif.message);
+      _notifSvc.showTrafficAlert(
+        notif.isWorsening ? 'Traffic Building' : 'Traffic Clearing',
+        notif.message,
+      );
     }
   }
+
+  // ── Settings callbacks ────────────────────────────────────────────────────
 
   void _onFrequencyChanged(int value) {
     setState(() => _frequencyMinutes = value);
     if (_monitoring) {
-      _api.updateSettings(kUserId, notificationFrequencyMinutes: value);
+      _sessionSvc.updateSettings(kUserId,
+          notificationFrequencyMinutes: value);
     }
   }
 
   void _onHomeSelected(AppLocation loc) {
     setState(() => _homeLocation = loc);
     if (_monitoring) {
-      _api.updateSettings(kUserId, homeLocation: loc);
+      _sessionSvc.updateSettings(kUserId, homeLocation: loc);
     }
   }
 
-  void _showSnack(String msg) {
+  // ── UI helpers ────────────────────────────────────────────────────────────
+
+  void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  String _friendlyErrorMessage(ApiError? error) {
+    if (error == null) return 'Failed to start monitoring.';
+    return switch (error) {
+      MissingApiKeyError() => 'API key not configured.',
+      AuthDeniedError()    => 'API key rejected. Check your key.',
+      QuotaExceededError() => 'API quota exceeded. Try again later.',
+      NetworkError()       => 'Cannot reach server. Is it running?',
+      ParseError()         => 'Unexpected server response.',
+      SessionNotFoundError() => 'Session not found.',
+    };
   }
 
   @override
@@ -138,6 +171,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _locationSvc.dispose();
     super.dispose();
   }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -163,17 +198,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (_connecting)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                ),
+              ),
             )
           else if (_monitoring)
             TextButton(
               onPressed: _stopMonitoring,
-              child: const Text('Stop', style: TextStyle(color: Colors.white)),
+              child:
+                  const Text('Stop', style: TextStyle(color: Colors.white)),
             )
           else
             TextButton(
               onPressed: _startMonitoring,
-              child: const Text('Start', style: TextStyle(color: Colors.white)),
+              child:
+                  const Text('Start', style: TextStyle(color: Colors.white)),
             ),
         ],
       ),
@@ -186,7 +230,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               frequencyMinutes: _frequencyMinutes,
               frequencyOptions: kFrequencyOptions,
               onFrequencyChanged: _onFrequencyChanged,
-              onRefresh: () => _monitoring ? _socket.checkTraffic(kUserId) : null,
+              onRefresh: () =>
+                  _monitoring ? _socket.checkTraffic(kUserId) : null,
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -194,14 +239,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 currentLocation: _currentLocation,
                 homeLocation: _homeLocation,
                 trafficStatus: _latestCondition?.status,
-                onCurrentLocationChanged: (loc) => setState(() => _currentLocation = loc),
+                onCurrentLocationChanged: (loc) =>
+                    setState(() => _currentLocation = loc),
                 onHomeLocationChanged: _onHomeSelected,
               ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: const Text('Notifications',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              child: const Text(
+                'Notifications',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
             ),
             NotificationsList(entries: _notifications),
             const Divider(height: 32),

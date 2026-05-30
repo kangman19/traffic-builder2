@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/location.dart';
-import '../services/api_service.dart';
+import '../services/geocoding_service.dart';
 
 class AddressSearch extends StatefulWidget {
   final String label;
@@ -20,22 +20,32 @@ class AddressSearch extends StatefulWidget {
 }
 
 class _AddressSearchState extends State<AddressSearch> {
-  final _api = ApiService();
+  final _geocoding = GeocodingService();
   final _controller = TextEditingController();
   Timer? _debounce;
-  List<PlaceResult> _results = [];
+  List<GeocodingResult> _results = [];
   bool _loading = false;
+  String? _errorMessage;
 
-  void _onChanged(String q) {
+  void _onChanged(String query) {
     _debounce?.cancel();
-    if (q.trim().isEmpty) {
-      setState(() => _results = []);
+    if (query.trim().isEmpty) {
+      setState(() { _results = []; _errorMessage = null; });
       return;
     }
+
     _debounce = Timer(const Duration(milliseconds: 400), () async {
-      setState(() => _loading = true);
-      final results = await _api.searchPlaces(q);
-      if (mounted) setState(() { _results = results; _loading = false; });
+      if (!mounted) return;
+      setState(() { _loading = true; _errorMessage = null; });
+
+      final (:results, :error) = await _geocoding.searchPlaces(query);
+
+      if (!mounted) return;
+      setState(() {
+        _results = results;
+        _loading = false;
+        _errorMessage = error != null ? 'Search unavailable — check connection' : null;
+      });
     });
   }
 
@@ -51,21 +61,35 @@ class _AddressSearchState extends State<AddressSearch> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        Text(widget.label,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         TextField(
           controller: _controller,
           decoration: InputDecoration(
             hintText: 'Search address…',
-            suffixIcon: _loading ? const Padding(
-              padding: EdgeInsets.all(12),
-              child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-            ) : null,
+            suffixIcon: _loading
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : null,
             border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           ),
           onChanged: _onChanged,
         ),
+        if (_errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(_errorMessage!,
+                style: const TextStyle(fontSize: 12, color: Colors.red)),
+          ),
         if (_results.isNotEmpty)
           Material(
             elevation: 4,
@@ -76,13 +100,13 @@ class _AddressSearchState extends State<AddressSearch> {
                 itemCount: _results.length,
                 itemBuilder: (_, i) {
                   final r = _results[i];
-                  final short = r.displayName.split(',').take(3).join(', ');
                   return ListTile(
-                    title: Text(short, style: const TextStyle(fontSize: 13)),
+                    title: Text(r.shortName,
+                        style: const TextStyle(fontSize: 13)),
                     onTap: () {
-                      widget.onSelected(AppLocation(lat: r.lat, long: r.lon));
+                      widget.onSelected(r.location);
                       _controller.clear();
-                      setState(() => _results = []);
+                      setState(() { _results = []; });
                     },
                   );
                 },

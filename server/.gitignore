@@ -1,3 +1,6 @@
+# Environment secrets — never commit real values
+.env
+
 node_modules/
 dist/
 .yarn/cache

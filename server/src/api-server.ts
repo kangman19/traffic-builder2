@@ -3,7 +3,8 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import axios from 'axios';
-import * as trafficService from './mockTrafficService';
+import { serverConfig } from './config';
+import * as trafficService from './trafficService';
 
 const app = express();
 const httpServer = createServer(app);
@@ -14,7 +15,7 @@ const io = new SocketIOServer(httpServer, {
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT ?? 3001;
+const PORT = serverConfig.port;
 
 // ── Health ─────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req: Request, res: Response) => {
@@ -106,9 +107,9 @@ app.get('/api/places/search', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+    const response = await axios.get(`${serverConfig.nominatimEndpoint}/search`, {
       params: { format: 'json', q, limit: 5 },
-      headers: { 'User-Agent': 'TrafficBuilder/1.0' },
+      headers: { 'User-Agent': 'TrafficBuilder/2.0' },
     });
     res.json(response.data);
   } catch (err) {

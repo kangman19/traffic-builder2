@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../core/config/app_config.dart';
 import '../models/traffic_update.dart';
 
-const String kSocketUrl = 'http://10.0.2.2:3001';
-
+/// Manages the persistent Socket.io connection to the backend.
+///
+/// Exposes a broadcast [Stream<TrafficUpdate>] so any widget or service
+/// can subscribe without holding a direct reference to this class.
 class SocketService {
   io.Socket? _socket;
   final _updateController = StreamController<TrafficUpdate>.broadcast();
@@ -14,8 +18,11 @@ class SocketService {
   void connect() {
     if (_socket != null) return;
 
+    final socketUrl = AppConfig.backendSocketUrl;
+    debugPrint('[SocketService] Connecting to $socketUrl');
+
     _socket = io.io(
-      kSocketUrl,
+      socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
@@ -23,30 +30,36 @@ class SocketService {
     );
 
     _socket!.on('connect', (_) {
-      // ignore: avoid_print
-      print('[Socket] Connected');
+      debugPrint('[SocketService] Connected');
     });
 
     _socket!.on('traffic_update', (data) {
       try {
-        final update = TrafficUpdate.fromJson(Map<String, dynamic>.from(data as Map));
+        final update =
+            TrafficUpdate.fromJson(Map<String, dynamic>.from(data as Map));
         _updateController.add(update);
       } catch (e) {
-        // ignore: avoid_print
-        print('[Socket] Parse error: $e');
+        debugPrint('[SocketService] Failed to parse traffic_update: $e');
       }
     });
 
-    _socket!.on('disconnect', (_) {
-      // ignore: avoid_print
-      print('[Socket] Disconnected');
+    _socket!.on('connect_error', (err) {
+      debugPrint('[SocketService] Connection error: $err');
+    });
+
+    _socket!.on('disconnect', (reason) {
+      debugPrint('[SocketService] Disconnected — reason: $reason');
     });
 
     _socket!.connect();
   }
 
   void checkTraffic(String userId) {
-    _socket?.emit('check_traffic', {'userId': userId});
+    if (!isConnected) {
+      debugPrint('[SocketService] checkTraffic called but socket not connected');
+      return;
+    }
+    _socket!.emit('check_traffic', {'userId': userId});
   }
 
   void dispose() {

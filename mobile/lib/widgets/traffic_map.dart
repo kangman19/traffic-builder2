@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../core/config/app_config.dart';
 import '../models/location.dart';
 import '../models/traffic_condition.dart';
 
@@ -158,7 +159,7 @@ class _TrafficMapState extends State<TrafficMap> {
           ),
           children: [
             TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              urlTemplate: AppConfig.openStreetMapTileEndpoint,
               userAgentPackageName: 'com.trafficbuilder.mobile',
               maxZoom: 19,
             ),
