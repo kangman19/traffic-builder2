@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../models/location.dart';
 import '../models/traffic_condition.dart';
 
@@ -24,72 +25,8 @@ class TrafficMap extends StatefulWidget {
 }
 
 class _TrafficMapState extends State<TrafficMap> {
-  GoogleMapController? _controller;
-
-  Set<Marker> _buildMarkers() {
-    final markers = <Marker>{};
-    final cur = widget.currentLocation;
-    final home = widget.homeLocation;
-
-    if (cur != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('current'),
-        position: LatLng(cur.lat, cur.long),
-        infoWindow: const InfoWindow(title: 'Current Location'),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        draggable: true,
-        onDragEnd: (pos) =>
-            widget.onCurrentLocationChanged(AppLocation(lat: pos.latitude, long: pos.longitude)),
-      ));
-    }
-
-    if (home != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('home'),
-        position: LatLng(home.lat, home.long),
-        infoWindow: const InfoWindow(title: 'Home'),
-        draggable: true,
-        onDragEnd: (pos) =>
-            widget.onHomeLocationChanged(AppLocation(lat: pos.latitude, long: pos.longitude)),
-      ));
-    }
-
-    return markers;
-  }
-
-  Set<Polyline> _buildPolyline() {
-    final cur = widget.currentLocation;
-    final home = widget.homeLocation;
-    if (cur == null || home == null) return {};
-
-    final color = (widget.trafficStatus ?? TrafficStatus.calm).color;
-    return {
-      Polyline(
-        polylineId: const PolylineId('route'),
-        points: [LatLng(cur.lat, cur.long), LatLng(home.lat, home.long)],
-        color: color,
-        width: 4,
-      ),
-    };
-  }
-
-  void _fitBounds() {
-    final cur = widget.currentLocation;
-    final home = widget.homeLocation;
-    if (_controller == null || cur == null || home == null) return;
-
-    final bounds = LatLngBounds(
-      southwest: LatLng(
-        cur.lat < home.lat ? cur.lat : home.lat,
-        cur.long < home.long ? cur.long : home.long,
-      ),
-      northeast: LatLng(
-        cur.lat > home.lat ? cur.lat : home.lat,
-        cur.long > home.long ? cur.long : home.long,
-      ),
-    );
-    _controller!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 60));
-  }
+  final _mapController = MapController();
+  bool _mapReady = false;
 
   @override
   void didUpdateWidget(TrafficMap old) {
@@ -100,10 +37,72 @@ class _TrafficMapState extends State<TrafficMap> {
     }
   }
 
-  void _onMapTap(LatLng pos) {
+  void _fitBounds() {
+    if (!_mapReady) return;
+    final cur = widget.currentLocation;
+    final home = widget.homeLocation;
+
+    if (cur != null && home != null) {
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints([
+            LatLng(cur.lat, cur.long),
+            LatLng(home.lat, home.long),
+          ]),
+          padding: const EdgeInsets.all(60),
+        ),
+      );
+    } else {
+      final single = cur ?? home;
+      if (single != null) {
+        _mapController.move(LatLng(single.lat, single.long), 13);
+      }
+    }
+  }
+
+  List<Marker> _buildMarkers() {
+    final markers = <Marker>[];
+    final cur = widget.currentLocation;
+    final home = widget.homeLocation;
+
+    if (cur != null) {
+      markers.add(Marker(
+        point: LatLng(cur.lat, cur.long),
+        width: 44,
+        height: 44,
+        child: const _Pin(icon: Icons.my_location, color: Colors.blue),
+      ));
+    }
+    if (home != null) {
+      markers.add(Marker(
+        point: LatLng(home.lat, home.long),
+        width: 44,
+        height: 44,
+        child: const _Pin(icon: Icons.home, color: Colors.red),
+      ));
+    }
+    return markers;
+  }
+
+  List<Polyline> _buildPolylines() {
+    final cur = widget.currentLocation;
+    final home = widget.homeLocation;
+    if (cur == null || home == null) return [];
+
+    final color = (widget.trafficStatus ?? TrafficStatus.calm).color;
+    return [
+      Polyline(
+        points: [LatLng(cur.lat, cur.long), LatLng(home.lat, home.long)],
+        color: color,
+        strokeWidth: 5,
+      ),
+    ];
+  }
+
+  void _onTap(TapPosition _, LatLng pos) {
     showModalBottomSheet<void>(
       context: context,
-      builder: (_) => SafeArea(
+      builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -111,16 +110,18 @@ class _TrafficMapState extends State<TrafficMap> {
               leading: const Icon(Icons.my_location, color: Colors.blue),
               title: const Text('Set as Current Location'),
               onTap: () {
-                Navigator.pop(context);
-                widget.onCurrentLocationChanged(AppLocation(lat: pos.latitude, long: pos.longitude));
+                Navigator.pop(ctx);
+                widget.onCurrentLocationChanged(
+                    AppLocation(lat: pos.latitude, long: pos.longitude));
               },
             ),
             ListTile(
               leading: const Icon(Icons.home, color: Colors.red),
               title: const Text('Set as Home'),
               onTap: () {
-                Navigator.pop(context);
-                widget.onHomeLocationChanged(AppLocation(lat: pos.latitude, long: pos.longitude));
+                Navigator.pop(ctx);
+                widget.onHomeLocationChanged(
+                    AppLocation(lat: pos.latitude, long: pos.longitude));
               },
             ),
           ],
@@ -130,30 +131,60 @@ class _TrafficMapState extends State<TrafficMap> {
   }
 
   @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final initial = widget.currentLocation ?? widget.homeLocation;
+    final center = initial != null ? LatLng(initial.lat, initial.long) : const LatLng(51.5, -0.1);
+
     return SizedBox(
       height: 350,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: initial == null
-            ? const Center(child: Text('Waiting for location…'))
-            : GoogleMap(
-                initialCameraPosition: CameraPosition(
-                  target: LatLng(initial.lat, initial.long),
-                  zoom: 12,
-                ),
-                markers: _buildMarkers(),
-                polylines: _buildPolyline(),
-                onMapCreated: (c) {
-                  _controller = c;
-                  WidgetsBinding.instance.addPostFrameCallback((_) => _fitBounds());
-                },
-                onTap: _onMapTap,
-                myLocationButtonEnabled: false,
-              ),
+        child: FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: center,
+            initialZoom: initial != null ? 13.0 : 4.0,
+            onMapReady: () {
+              _mapReady = true;
+              _fitBounds();
+            },
+            onTap: _onTap,
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.trafficbuilder.mobile',
+              maxZoom: 19,
+            ),
+            PolylineLayer(polylines: _buildPolylines()),
+            MarkerLayer(markers: _buildMarkers()),
+          ],
+        ),
       ),
     );
   }
 }
 
+class _Pin extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+
+  const _Pin({required this.icon, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+        ),
+        padding: const EdgeInsets.all(6),
+        child: Icon(icon, color: Colors.white, size: 20),
+      );
+}

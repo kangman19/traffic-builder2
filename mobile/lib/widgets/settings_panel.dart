@@ -5,19 +5,15 @@ import 'address_search.dart';
 class SettingsPanel extends StatelessWidget {
   final AppLocation? homeLocation;
   final AppLocation? currentLocation;
-  final int threshold;
   final ValueChanged<AppLocation> onHomeSelected;
   final VoidCallback onRedetectGps;
-  final ValueChanged<int> onThresholdChanged;
 
   const SettingsPanel({
     super.key,
     required this.homeLocation,
     required this.currentLocation,
-    required this.threshold,
     required this.onHomeSelected,
     required this.onRedetectGps,
-    required this.onThresholdChanged,
   });
 
   @override
@@ -55,23 +51,6 @@ class SettingsPanel extends StatelessWidget {
                 icon: const Icon(Icons.gps_fixed, size: 16),
                 label: const Text('Re-detect'),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Text('Notification Threshold: '),
-              Expanded(
-                child: Slider(
-                  value: threshold.toDouble(),
-                  min: 10,
-                  max: 50,
-                  divisions: 8,
-                  label: '$threshold%',
-                  onChanged: (v) => onThresholdChanged(v.round()),
-                ),
-              ),
-              Text('$threshold%', style: const TextStyle(fontWeight: FontWeight.w600)),
             ],
           ),
         ],

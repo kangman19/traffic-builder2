@@ -32,7 +32,6 @@ export interface MonitoringSession {
   currentLocation: Location;
   isActive: boolean;
   lastCheck?: TrafficCondition;
-  notificationThreshold: number;
   notificationFrequencyMinutes: number;
 }
 
@@ -139,7 +138,6 @@ export function createSession(
   userId: string,
   homeLocation: Location,
   currentLocation: Location,
-  threshold: number,
   frequency: number,
   onUpdate: (update: TrafficUpdate) => void
 ): MonitoringSession {
@@ -151,7 +149,6 @@ export function createSession(
     homeLocation,
     currentLocation,
     isActive: true,
-    notificationThreshold: threshold,
     notificationFrequencyMinutes: frequency,
   };
 
@@ -193,7 +190,6 @@ export function updateSettings(
   userId: string,
   settings: {
     homeLocation?: Location;
-    notificationThreshold?: number;
     notificationFrequencyMinutes?: number;
   }
 ): boolean {
@@ -201,8 +197,6 @@ export function updateSettings(
   if (!session) return false;
 
   if (settings.homeLocation) session.homeLocation = settings.homeLocation;
-  if (settings.notificationThreshold !== undefined)
-    session.notificationThreshold = settings.notificationThreshold;
   if (settings.notificationFrequencyMinutes !== undefined) {
     session.notificationFrequencyMinutes = settings.notificationFrequencyMinutes;
     if (session.timer) clearInterval(session.timer);

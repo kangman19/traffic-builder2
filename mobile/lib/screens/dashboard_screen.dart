@@ -34,7 +34,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _monitoring = false;
   bool _connecting = false;
   int _frequencyMinutes = 10;
-  int _threshold = 20;
 
   final List<NotificationEntry> _notifications = [];
   StreamSubscription<TrafficUpdate>? _socketSub;
@@ -67,7 +66,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         userId: kUserId,
         homeLocation: _homeLocation!,
         currentLocation: _currentLocation!,
-        threshold: _threshold,
         frequency: _frequencyMinutes,
       );
 
@@ -118,13 +116,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _frequencyMinutes = value);
     if (_monitoring) {
       _api.updateSettings(kUserId, notificationFrequencyMinutes: value);
-    }
-  }
-
-  void _onThresholdChanged(int value) {
-    setState(() => _threshold = value);
-    if (_monitoring) {
-      _api.updateSettings(kUserId, notificationThreshold: value);
     }
   }
 
@@ -217,10 +208,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             SettingsPanel(
               homeLocation: _homeLocation,
               currentLocation: _currentLocation,
-              threshold: _threshold,
               onHomeSelected: _onHomeSelected,
               onRedetectGps: _detectLocation,
-              onThresholdChanged: _onThresholdChanged,
             ),
             const SizedBox(height: 32),
           ],

@@ -36,14 +36,12 @@ class ApiService {
     required String userId,
     required AppLocation homeLocation,
     required AppLocation currentLocation,
-    int threshold = 20,
     int frequency = 10,
   }) async {
     final res = await _dio.post('/session', data: {
       'userId': userId,
       'homeLocation': homeLocation.toJson(),
       'currentLocation': currentLocation.toJson(),
-      'threshold': threshold,
       'frequency': frequency,
     });
     return MonitoringSession.fromJson(res.data as Map<String, dynamic>);
@@ -80,20 +78,26 @@ class ApiService {
   Future<void> updateSettings(
     String userId, {
     AppLocation? homeLocation,
-    int? notificationThreshold,
     int? notificationFrequencyMinutes,
   }) async {
     await _dio.put('/session/$userId/settings', data: {
       'homeLocation': homeLocation?.toJson(),
-      'notificationThreshold': notificationThreshold,
       'notificationFrequencyMinutes': notificationFrequencyMinutes,
     }..removeWhere((_, v) => v == null));
   }
 
+  // Calls Nominatim directly — works without the server being up.
   Future<List<PlaceResult>> searchPlaces(String query) async {
     if (query.trim().isEmpty) return [];
     try {
-      final res = await _dio.get('/places/search', queryParameters: {'q': query});
+      final res = await Dio().get(
+        'https://nominatim.openstreetmap.org/search',
+        queryParameters: {'format': 'json', 'q': query, 'limit': 5},
+        options: Options(
+          headers: {'User-Agent': 'TrafficBuilder/1.0'},
+          receiveTimeout: const Duration(seconds: 8),
+        ),
+      );
       final list = res.data as List<dynamic>;
       return list.map((e) => PlaceResult.fromJson(e as Map<String, dynamic>)).toList();
     } catch (_) {

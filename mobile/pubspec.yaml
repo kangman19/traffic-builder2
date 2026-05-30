@@ -18,8 +18,9 @@ dependencies:
   # WebSocket
   socket_io_client: ^2.0.3+1
 
-  # Maps
-  google_maps_flutter: ^2.10.0
+  # OpenStreetMap map — no API key required
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
 
   # GPS
   geolocator: ^13.0.4
@@ -29,9 +30,6 @@ dependencies:
 
   # Local push notifications
   flutter_local_notifications: ^18.0.1
-
-  # Background foreground service
-  flutter_foreground_task: ^8.15.1
 
 dev_dependencies:
   flutter_test:

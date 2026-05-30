@@ -23,7 +23,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // ── Session ─────────────────────────────────────────────────────────────────
 app.post('/api/session', (req: Request, res: Response) => {
-  const { userId, homeLocation, currentLocation, threshold, frequency } = req.body;
+  const { userId, homeLocation, currentLocation, frequency } = req.body;
 
   if (!userId || !homeLocation || !currentLocation) {
     res.status(400).json({ error: 'userId, homeLocation, and currentLocation are required' });
@@ -34,7 +34,6 @@ app.post('/api/session', (req: Request, res: Response) => {
     userId,
     homeLocation,
     currentLocation,
-    threshold ?? 20,
     frequency ?? 10,
     (update) => {
       io.emit('traffic_update', update);
@@ -77,10 +76,9 @@ app.delete('/api/session/:userId', (req: Request, res: Response) => {
 });
 
 app.put('/api/session/:userId/settings', (req: Request, res: Response) => {
-  const { homeLocation, notificationThreshold, notificationFrequencyMinutes } = req.body;
+  const { homeLocation, notificationFrequencyMinutes } = req.body;
   const ok = trafficService.updateSettings(req.params.userId, {
     homeLocation,
-    notificationThreshold,
     notificationFrequencyMinutes,
   });
   if (!ok) {
