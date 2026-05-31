@@ -148,7 +148,25 @@ async function tick(userId: string): Promise<void> {
   }
 }
 
-// ── Public API — identical interface to mockTrafficService ─────────────────
+// ── Serialisation helper ───────────────────────────────────────────────────
+
+// SessionState extends MonitoringSession with internal fields (timer, tickInProgress,
+// previousStatus, lastNotificationTime). The timer field is a Node.js Timeout object
+// that contains circular references (_idleNext / _idlePrev), so JSON.stringify throws
+// a "Converting circular structure to JSON" error if a raw SessionState is passed to
+// res.json(). This helper returns only the fields that belong on the wire.
+function toPublicSession(s: SessionState): MonitoringSession {
+  return {
+    userId: s.userId,
+    homeLocation: s.homeLocation,
+    currentLocation: s.currentLocation,
+    isActive: s.isActive,
+    lastCheck: s.lastCheck,
+    notificationFrequencyMinutes: s.notificationFrequencyMinutes,
+  };
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────
 
 export function createSession(
   userId: string,
@@ -178,11 +196,12 @@ export function createSession(
   setTimeout(() => tick(userId), 500);
   session.timer = setInterval(() => tick(userId), frequency * 60_000);
 
-  return session;
+  return toPublicSession(session);
 }
 
 export function getSession(userId: string): MonitoringSession | null {
-  return sessions.get(userId) ?? null;
+  const session = sessions.get(userId);
+  return session ? toPublicSession(session) : null;
 }
 
 export function updateLocation(userId: string, location: Location): boolean {

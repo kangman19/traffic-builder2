@@ -1,12 +1,17 @@
 /// Centralised build-time configuration for Traffic Builder.
 ///
 /// Values are injected at compile time via --dart-define:
-///   flutter run \
-///     --dart-define=BACKEND_BASE_URL=http://192.168.1.50:3001/api \
-///     --dart-define=BACKEND_SOCKET_URL=http://192.168.1.50:3001
 ///
-/// Defaults work out-of-the-box for the Android emulator (10.0.2.2 is the
-/// emulator's loopback alias for the host machine's localhost).
+///   # Default: production Render server
+///   flutter run
+///
+///   # Web / iOS Simulator / Desktop (local dev):
+///   flutter run --dart-define=BACKEND_BASE_URL=http://localhost:3001/api \
+///               --dart-define=BACKEND_SOCKET_URL=http://localhost:3001
+///
+///   # Android emulator (emulator loopback to host machine):
+///   flutter run --dart-define=BACKEND_BASE_URL=http://10.0.2.2:3001/api \
+///               --dart-define=BACKEND_SOCKET_URL=http://10.0.2.2:3001
 ///
 /// No secrets live here. The Google Maps API key belongs exclusively in
 /// server/.env — it never touches the Flutter app.
@@ -22,8 +27,6 @@ class AppConfig {
 
   // ── OpenStreetMap tiles ───────────────────────────────────────────────────
 
-  // CartoDB dark-matter tiles — free, no key required.
-  // Override via --dart-define=OPEN_STREET_MAP_TILE_ENDPOINT=... if preferred.
   static const String openStreetMapTileEndpoint = String.fromEnvironment(
     'OPEN_STREET_MAP_TILE_ENDPOINT',
     defaultValue: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
@@ -32,16 +35,14 @@ class AppConfig {
   // ── Backend server ────────────────────────────────────────────────────────
 
   /// HTTP base URL for the Express API.
-  /// Default: Android emulator → host machine localhost:3001.
-  /// Real device: pass --dart-define=BACKEND_BASE_URL=http://192.168.1.x:3001/api
   static const String backendBaseUrl = String.fromEnvironment(
     'BACKEND_BASE_URL',
-    defaultValue: 'http://10.0.2.2:3001/api',
+    defaultValue: 'https://traffic-builder2.onrender.com/api',
   );
 
   /// Socket.io base URL (no /api suffix).
   static const String backendSocketUrl = String.fromEnvironment(
     'BACKEND_SOCKET_URL',
-    defaultValue: 'http://10.0.2.2:3001',
+    defaultValue: 'https://traffic-builder2.onrender.com',
   );
 }

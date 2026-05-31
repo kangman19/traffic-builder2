@@ -14,8 +14,8 @@ class ApiClient {
     // relative paths (e.g. 'session') as children, not siblings.
     // Without the trailing slash, '/session' is an absolute host-relative path
     // and Uri.resolve strips the '/api' segment entirely:
-    //   'http://10.0.2.2:3001/api'  + '/session' → http://10.0.2.2:3001/session  ✗
-    //   'http://10.0.2.2:3001/api/' +  'session'  → http://10.0.2.2:3001/api/session ✓
+    //   'http://localhost:3001/api'  + '/session' → http://localhost:3001/session  ✗
+    //   'http://localhost:3001/api/' +  'session'  → http://localhost:3001/api/session ✓
     final backendBase = _trailingSlash(AppConfig.backendBaseUrl);
 
     debugPrint('[ApiClient] Backend base URL: $backendBase');
