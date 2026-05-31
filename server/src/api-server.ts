@@ -130,6 +130,8 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Traffic Builder server running on http://localhost:${PORT}`);
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Server] Listening on 0.0.0.0:${PORT}`);
+  console.log(`[Server] Android emulator → http://10.0.2.2:${PORT}/api`);
+  console.log(`[Server] Host machine     → http://localhost:${PORT}/api`);
 });

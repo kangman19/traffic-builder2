@@ -19,10 +19,11 @@ class AddressSearch extends StatefulWidget {
 }
 
 class _AddressSearchState extends State<AddressSearch> {
-  final _geocoding = GeocodingService();
+  final _geocoding  = GeocodingService();
   final _controller = TextEditingController();
-  final _focusNode = FocusNode();
+  final _focusNode  = FocusNode();
   Timer? _debounce;
+  Timer? _focusTimer;
   List<GeocodingResult> _results = [];
   bool _loading = false;
   bool _focused = false;
@@ -30,10 +31,25 @@ class _AddressSearchState extends State<AddressSearch> {
   @override
   void initState() {
     super.initState();
-    _focusNode.addListener(() {
-      setState(() => _focused = _focusNode.hasFocus);
-      if (!_focusNode.hasFocus) setState(() => _results = []);
-    });
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    setState(() => _focused = _focusNode.hasFocus);
+
+    if (!_focusNode.hasFocus) {
+      // BUG FIX: Clearing results immediately on focus-loss fires BEFORE the
+      // ListTile.onTap callback completes, unmounting the tile and swallowing
+      // the tap. A short delay lets the tap gesture finish first.
+      _focusTimer?.cancel();
+      _focusTimer = Timer(const Duration(milliseconds: 200), () {
+        if (mounted && !_focusNode.hasFocus) {
+          setState(() => _results = []);
+        }
+      });
+    } else {
+      _focusTimer?.cancel();
+    }
   }
 
   void _onChanged(String query) {
@@ -52,6 +68,8 @@ class _AddressSearchState extends State<AddressSearch> {
   }
 
   void _select(GeocodingResult r) {
+    // Cancel any pending focus-loss clear so it doesn't race with this call.
+    _focusTimer?.cancel();
     widget.onSelected(r.location);
     _controller.clear();
     _focusNode.unfocus();
@@ -60,7 +78,9 @@ class _AddressSearchState extends State<AddressSearch> {
 
   @override
   void dispose() {
+    _focusTimer?.cancel();
     _debounce?.cancel();
+    _focusNode.removeListener(_onFocusChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -68,12 +88,12 @@ class _AddressSearchState extends State<AddressSearch> {
 
   @override
   Widget build(BuildContext context) {
-    final hasLocation = widget.current != null && !_focused && _controller.text.isEmpty;
+    final showHint = widget.current != null && !_focused && _controller.text.isEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Input field
+        // ── Text input ─────────────────────────────────────────────────────
         Container(
           decoration: BoxDecoration(
             color: AppTheme.surface,
@@ -88,24 +108,16 @@ class _AddressSearchState extends State<AddressSearch> {
                 child: TextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 14,
-                  ),
+                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
                   decoration: InputDecoration(
-                    hintText: hasLocation
-                        ? widget.current.toString()
-                        : 'Search address…',
+                    hintText: showHint ? widget.current.toString() : 'Search address…',
                     hintStyle: TextStyle(
-                      color: hasLocation
-                          ? AppTheme.textPrimary
-                          : AppTheme.textMuted,
+                      color: showHint ? AppTheme.textPrimary : AppTheme.textMuted,
                       fontSize: 14,
                     ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 13,
-                    ),
+                        horizontal: 14, vertical: 13),
                     isDense: true,
                     suffixIcon: _loading
                         ? const Padding(
@@ -114,9 +126,7 @@ class _AddressSearchState extends State<AddressSearch> {
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppTheme.accent,
-                              ),
+                                  strokeWidth: 2, color: AppTheme.accent),
                             ),
                           )
                         : null,
@@ -129,50 +139,57 @@ class _AddressSearchState extends State<AddressSearch> {
                 child: Icon(
                   Icons.home_rounded,
                   size: 18,
-                  color: widget.current != null
-                      ? AppTheme.accent
-                      : AppTheme.textMuted,
+                  color: widget.current != null ? AppTheme.accent : AppTheme.textMuted,
                 ),
               ),
             ],
           ),
         ),
-        // Results dropdown
+
+        // ── Results dropdown ───────────────────────────────────────────────
+        // BUG FIX: Use Material (not Container+BoxDecoration) as the wrapper
+        // so ListTile has a proper Material ancestor for ink ripples.
+        // A plain Container compiles to DecoratedBox which hides ink effects
+        // and can swallow taps on some platforms.
         if (_results.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceAlt,
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 220),
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                itemCount: _results.length,
-                separatorBuilder: (_, _) =>
-                    Divider(height: 1, color: AppTheme.border),
-                itemBuilder: (_, i) {
-                  final r = _results[i];
-                  return ListTile(
-                    dense: true,
-                    leading: const Icon(
-                      Icons.location_on_outlined,
-                      size: 16,
-                      color: AppTheme.textMuted,
-                    ),
-                    title: Text(
-                      r.shortName,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 13,
-                      ),
-                    ),
-                    onTap: () => _select(r),
-                  );
-                },
+              child: Material(
+                color: AppTheme.surfaceAlt,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: AppTheme.border),
+                ),
+                elevation: 4,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: _results.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, color: AppTheme.border),
+                    itemBuilder: (_, i) {
+                      final r = _results[i];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(
+                          Icons.location_on_outlined,
+                          size: 16,
+                          color: AppTheme.textMuted,
+                        ),
+                        title: Text(
+                          r.shortName,
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary, fontSize: 13),
+                        ),
+                        onTap: () => _select(r),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),

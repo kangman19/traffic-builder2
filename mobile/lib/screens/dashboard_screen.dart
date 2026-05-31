@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../core/config/app_config.dart';
 import '../core/network/api_error.dart';
 import '../models/location.dart';
 import '../models/traffic_condition.dart';
@@ -68,6 +69,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     setState(() => _connecting = true);
 
+    // Health check first — distinguishes "server down" from a session error.
+    debugPrint('[Dashboard] Starting monitoring — target: ${AppConfig.backendBaseUrl}');
+    final serverReachable = await _sessionSvc.checkHealth();
+    if (!serverReachable) {
+      debugPrint('[Dashboard] Health check failed — aborting');
+      setState(() => _connecting = false);
+      _showError('Server unreachable at ${AppConfig.backendBaseUrl}\nRun: cd server && yarn dev');
+      return;
+    }
+    debugPrint('[Dashboard] Server healthy — creating session');
+
     final (:session, :error) = await _sessionSvc.createSession(
       userId: kUserId,
       homeLocation: _homeLocation!,
@@ -76,10 +88,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     if (error != null || session == null) {
+      debugPrint('[Dashboard] createSession failed: ${error?.logMessage}');
       setState(() => _connecting = false);
       _showError(_friendlyError(error));
       return;
     }
+    debugPrint('[Dashboard] Session created successfully');
 
     _socket.connect();
     _socketSub = _socket.updates.listen(_onTrafficUpdate);
@@ -151,12 +165,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _friendlyError(ApiError? e) {
     if (e == null) return 'Failed to start monitoring.';
     return switch (e) {
-      MissingApiKeyError()   => 'API key not configured.',
-      AuthDeniedError()      => 'API key rejected.',
-      QuotaExceededError()   => 'API quota exceeded. Try later.',
-      NetworkError()         => 'Cannot reach server. Is it running?',
-      ParseError()           => 'Unexpected server response.',
-      SessionNotFoundError() => 'Session not found.',
+      MissingApiKeyError()                               => 'API key not configured.',
+      AuthDeniedError()                                  => 'API key rejected — check server/.env.',
+      QuotaExceededError()                               => 'API quota exceeded. Try later.',
+      NetworkError(statusCode: final c) when c != null   => 'Server returned HTTP $c — check server console.',
+      NetworkError()                                     => 'No response from ${AppConfig.backendBaseUrl}',
+      ParseError()                                       => 'Unexpected server response — check server console.',
+      SessionNotFoundError()                             => 'Session not found.',
     };
   }
 

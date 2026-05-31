@@ -1,11 +1,7 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 
-/// Three isolated Dio instances — one per external system.
-///
-/// Call [ApiClient.init] once in [main] after [AppConfig.load].
-/// Each client has its own timeout, base URL, and headers so changes
-/// to one endpoint never silently affect another.
 class ApiClient {
   ApiClient._();
 
@@ -14,18 +10,41 @@ class ApiClient {
   static late final Dio _googleMaps;
 
   static void init() {
+    // IMPORTANT: baseUrl MUST end with '/' so that Dart's Uri.resolve treats
+    // relative paths (e.g. 'session') as children, not siblings.
+    // Without the trailing slash, '/session' is an absolute host-relative path
+    // and Uri.resolve strips the '/api' segment entirely:
+    //   'http://10.0.2.2:3001/api'  + '/session' → http://10.0.2.2:3001/session  ✗
+    //   'http://10.0.2.2:3001/api/' +  'session'  → http://10.0.2.2:3001/api/session ✓
+    final backendBase = _trailingSlash(AppConfig.backendBaseUrl);
+
+    debugPrint('[ApiClient] Backend base URL: $backendBase');
+
     _backend = Dio(
       BaseOptions(
-        baseUrl: AppConfig.backendBaseUrl,
+        baseUrl: backendBase,
         connectTimeout: const Duration(seconds: 10),
         receiveTimeout: const Duration(seconds: 15),
         contentType: 'application/json',
       ),
     );
 
+    // Log every request and response so failures are visible in logcat
+    // without needing a proxy tool.
+    _backend.interceptors.add(
+      LogInterceptor(
+        requestBody: true,
+        responseBody: true,
+        requestHeader: false,
+        responseHeader: false,
+        error: true,
+        logPrint: (obj) => debugPrint('[Backend] $obj'),
+      ),
+    );
+
     _nominatim = Dio(
       BaseOptions(
-        baseUrl: AppConfig.nominatimSearchEndpoint,
+        baseUrl: _trailingSlash(AppConfig.nominatimSearchEndpoint),
         connectTimeout: const Duration(seconds: 8),
         receiveTimeout: const Duration(seconds: 8),
         headers: const {
@@ -37,19 +56,17 @@ class ApiClient {
 
     _googleMaps = Dio(
       BaseOptions(
-        baseUrl: 'https://maps.googleapis.com',
+        baseUrl: 'https://maps.googleapis.com/',
         connectTimeout: const Duration(seconds: 8),
         receiveTimeout: const Duration(seconds: 8),
       ),
     );
   }
 
-  /// Backend Express + Socket.io server.
-  static Dio get backend => _backend;
+  static String _trailingSlash(String url) =>
+      url.endsWith('/') ? url : '$url/';
 
-  /// Nominatim OpenStreetMap geocoding API.
+  static Dio get backend   => _backend;
   static Dio get nominatim => _nominatim;
-
-  /// Google Maps APIs (Directions, etc.).
   static Dio get googleMaps => _googleMaps;
 }
