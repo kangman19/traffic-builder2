@@ -26,7 +26,6 @@ class SettingsPanel extends StatelessWidget {
           const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 12),
           AddressSearch(
-            label: 'Home Location',
             current: homeLocation,
             onSelected: onHomeSelected,
           ),

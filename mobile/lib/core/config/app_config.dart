@@ -22,9 +22,11 @@ class AppConfig {
 
   // ── OpenStreetMap tiles ───────────────────────────────────────────────────
 
+  // CartoDB dark-matter tiles — free, no key required.
+  // Override via --dart-define=OPEN_STREET_MAP_TILE_ENDPOINT=... if preferred.
   static const String openStreetMapTileEndpoint = String.fromEnvironment(
     'OPEN_STREET_MAP_TILE_ENDPOINT',
-    defaultValue: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    defaultValue: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
   );
 
   // ── Backend server ────────────────────────────────────────────────────────

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+
+    <!--
+        Android 9+ (API 28+) blocks cleartext HTTP by default.
+        This config re-enables it ONLY for local development addresses.
+        Production traffic (any real domain/IP outside these ranges) remains
+        subject to the default HTTPS-only policy.
+
+        10.0.2.2  — Android emulator loopback to the host machine's localhost
+        10.0.3.2  — Genymotion emulator loopback equivalent
+        192.168.* — Typical LAN range when running on a real device over Wi-Fi
+        172.16-31 — Alternative private LAN range (corporate / Docker networks)
+        10.*      — Broad private range fallback
+    -->
+
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Android emulator → host machine -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- Genymotion emulator → host machine -->
+        <domain includeSubdomains="false">10.0.3.2</domain>
+    </domain-config>
+
+    <!--
+        Real device on a local network: run with --dart-define to override the URL,
+        then add the specific LAN IP here, e.g. <domain>192.168.1.50</domain>
+        or set android:usesCleartextTraffic="true" on the application tag for a
+        one-time dev build.
+    -->
+
+</network-security-config>

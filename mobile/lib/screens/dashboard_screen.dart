@@ -8,13 +8,15 @@ import '../services/session_service.dart';
 import '../services/socket_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
+import '../theme/app_theme.dart';
+import '../widgets/address_search.dart';
+import '../widgets/frequency_selector.dart';
 import '../widgets/traffic_status_card.dart';
 import '../widgets/traffic_map.dart';
 import '../widgets/notifications_list.dart';
-import '../widgets/settings_panel.dart';
 
 const String kUserId = 'user123';
-const List<int> kFrequencyOptions = [5, 7, 10, 15, 20];
+const List<int> kFrequencyOptions = [5, 10, 20];
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -24,17 +26,17 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _sessionSvc = SessionService();
-  final _socket = SocketService();
+  final _sessionSvc  = SessionService();
+  final _socket      = SocketService();
   final _locationSvc = LocationService();
-  final _notifSvc = NotificationService.instance;
+  final _notifSvc    = NotificationService.instance;
 
-  AppLocation? _currentLocation;
-  AppLocation? _homeLocation;
+  AppLocation?      _currentLocation;
+  AppLocation?      _homeLocation;
   TrafficCondition? _latestCondition;
-  bool _monitoring = false;
-  bool _connecting = false;
-  int _frequencyMinutes = 10;
+  bool _monitoring  = false;
+  bool _connecting  = false;
+  int  _frequencyMinutes = 5;
 
   final List<NotificationEntry> _notifications = [];
   StreamSubscription<TrafficUpdate>? _socketSub;
@@ -45,7 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _detectLocation();
   }
 
-  // ── Location ─────────────────────────────────────────────────────────────
+  // ── Location ──────────────────────────────────────────────────────────────
 
   Future<void> _detectLocation() async {
     final loc = await _locationSvc.getCurrentLocation();
@@ -56,11 +58,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _startMonitoring() async {
     if (_currentLocation == null) {
-      _showError('Could not get your location. Enable GPS and try again.');
+      _showError('GPS unavailable. Enable location and try again.');
       return;
     }
     if (_homeLocation == null) {
-      _showError('Please set your home location in Settings first.');
+      _showError('Set your home location first.');
       return;
     }
 
@@ -75,7 +77,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (error != null || session == null) {
       setState(() => _connecting = false);
-      _showError(_friendlyErrorMessage(error));
+      _showError(_friendlyError(error));
       return;
     }
 
@@ -88,10 +90,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
 
     await _notifSvc.showMonitoringActive();
-    setState(() {
-      _monitoring = true;
-      _connecting = false;
-    });
+    setState(() { _monitoring = true; _connecting = false; });
   }
 
   Future<void> _stopMonitoring() async {
@@ -99,41 +98,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _socketSub?.cancel();
     _locationSvc.stopTracking();
     await _notifSvc.cancelMonitoringActive();
-    setState(() => _monitoring = false);
+    setState(() { _monitoring = false; _latestCondition = null; });
   }
 
-  // ── Real-time updates ─────────────────────────────────────────────────────
+  // ── Traffic updates ───────────────────────────────────────────────────────
 
   void _onTrafficUpdate(TrafficUpdate update) {
     setState(() {
       _latestCondition = update.condition;
       if (update.notification != null) {
-        _notifications.insert(
-          0,
-          NotificationEntry(
-            time: DateTime.now(),
-            notification: update.notification!,
-          ),
-        );
+        _notifications.insert(0, NotificationEntry(
+          time: DateTime.now(),
+          notification: update.notification!,
+        ));
       }
     });
 
     if (update.notification != null) {
-      final notif = update.notification!;
+      final n = update.notification!;
       _notifSvc.showTrafficAlert(
-        notif.isWorsening ? 'Traffic Building' : 'Traffic Clearing',
-        notif.message,
+        n.isWorsening ? 'Traffic Building' : 'Traffic Clearing',
+        n.message,
       );
     }
   }
 
-  // ── Settings callbacks ────────────────────────────────────────────────────
+  // ── Settings ──────────────────────────────────────────────────────────────
 
   void _onFrequencyChanged(int value) {
     setState(() => _frequencyMinutes = value);
     if (_monitoring) {
-      _sessionSvc.updateSettings(kUserId,
-          notificationFrequencyMinutes: value);
+      _sessionSvc.updateSettings(kUserId, notificationFrequencyMinutes: value);
     }
   }
 
@@ -144,22 +139,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // ── UI helpers ────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
   }
 
-  String _friendlyErrorMessage(ApiError? error) {
-    if (error == null) return 'Failed to start monitoring.';
-    return switch (error) {
-      MissingApiKeyError() => 'API key not configured.',
-      AuthDeniedError()    => 'API key rejected. Check your key.',
-      QuotaExceededError() => 'API quota exceeded. Try again later.',
-      NetworkError()       => 'Cannot reach server. Is it running?',
-      ParseError()         => 'Unexpected server response.',
+  String _friendlyError(ApiError? e) {
+    if (e == null) return 'Failed to start monitoring.';
+    return switch (e) {
+      MissingApiKeyError()   => 'API key not configured.',
+      AuthDeniedError()      => 'API key rejected.',
+      QuotaExceededError()   => 'API quota exceeded. Try later.',
+      NetworkError()         => 'Cannot reach server. Is it running?',
+      ParseError()           => 'Unexpected server response.',
       SessionNotFoundError() => 'Session not found.',
     };
   }
@@ -177,90 +173,137 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            const Text('Traffic Builder'),
-            const SizedBox(width: 8),
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _monitoring
-                    ? (_socket.isConnected ? Colors.green : Colors.orange)
-                    : Colors.grey,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          if (_connecting)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                ),
-              ),
-            )
-          else if (_monitoring)
-            TextButton(
-              onPressed: _stopMonitoring,
-              child:
-                  const Text('Stop', style: TextStyle(color: Colors.white)),
-            )
-          else
-            TextButton(
-              onPressed: _startMonitoring,
-              child:
-                  const Text('Start', style: TextStyle(color: Colors.white)),
-            ),
-        ],
-      ),
+      backgroundColor: AppTheme.background,
+      appBar: _buildAppBar(),
       body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TrafficStatusCardWidget(
-              condition: _latestCondition,
-              frequencyMinutes: _frequencyMinutes,
-              frequencyOptions: kFrequencyOptions,
-              onFrequencyChanged: _onFrequencyChanged,
-              onRefresh: () =>
-                  _monitoring ? _socket.checkTraffic(kUserId) : null,
+            _SectionLabel('HOME LOCATION'),
+            const SizedBox(height: 8),
+            AddressSearch(
+              current: _homeLocation,
+              onSelected: _onHomeSelected,
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TrafficMap(
-                currentLocation: _currentLocation,
-                homeLocation: _homeLocation,
-                trafficStatus: _latestCondition?.status,
-                onCurrentLocationChanged: (loc) =>
-                    setState(() => _currentLocation = loc),
-                onHomeLocationChanged: _onHomeSelected,
-              ),
+            const SizedBox(height: 20),
+            _SectionLabel('NOTIFICATION FREQUENCY'),
+            const SizedBox(height: 8),
+            FrequencySelector(
+              selected: _frequencyMinutes,
+              options: kFrequencyOptions,
+              onChanged: _onFrequencyChanged,
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: const Text(
-                'Notifications',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ),
-            NotificationsList(entries: _notifications),
-            const Divider(height: 32),
-            SettingsPanel(
-              homeLocation: _homeLocation,
+            const SizedBox(height: 20),
+            TrafficStatusCard(condition: _latestCondition),
+            const SizedBox(height: 20),
+            _SectionLabel('MAP VIEW'),
+            const SizedBox(height: 8),
+            TrafficMap(
               currentLocation: _currentLocation,
-              onHomeSelected: _onHomeSelected,
-              onRedetectGps: _detectLocation,
+              homeLocation: _homeLocation,
+              trafficStatus: _latestCondition?.status,
+              onCurrentLocationChanged: (loc) =>
+                  setState(() => _currentLocation = loc),
+              onHomeLocationChanged: _onHomeSelected,
             ),
-            const SizedBox(height: 32),
+            if (_notifications.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              _SectionLabel('RECENT ALERTS'),
+              const SizedBox(height: 8),
+              Container(
+                decoration: AppTheme.cardDecoration(),
+                child: NotificationsList(entries: _notifications),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: AppTheme.background,
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('TRAFFIC BUILDER'),
+          const SizedBox(width: 8),
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _monitoring
+                  ? (_socket.isConnected ? AppTheme.accent : Colors.orange)
+                  : AppTheme.textMuted,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: _connecting
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.accent,
+                  ),
+                )
+              : _StartStopButton(
+                  monitoring: _monitoring,
+                  onStart: _startMonitoring,
+                  onStop: _stopMonitoring,
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Sub-widgets ──────────────────────────────────────────────────────────────
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) => Text(text, style: AppTheme.labelStyle);
+}
+
+class _StartStopButton extends StatelessWidget {
+  final bool monitoring;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+
+  const _StartStopButton({
+    required this.monitoring,
+    required this.onStart,
+    required this.onStop,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: monitoring ? onStop : onStart,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        decoration: BoxDecoration(
+          color: monitoring ? AppTheme.accentDim : AppTheme.accent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          monitoring ? 'STOP' : 'START',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ),
         ),
       ),
     );
