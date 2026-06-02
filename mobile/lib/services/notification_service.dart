@@ -1,26 +1,28 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../models/traffic_condition.dart';
 
 /// Singleton service for local push notifications.
 ///
-/// [NotificationService.init] must be called once in [main] before
-/// [runApp] so the plugin is ready before any background event fires.
+/// Call [init] once in [main] before [runApp], then [requestPermission]
+/// immediately after to satisfy Android 13+ runtime-permission requirements.
 class NotificationService {
   NotificationService._();
 
   static final NotificationService instance = NotificationService._();
 
-  static const _alertChannelId = 'traffic_alerts';
+  static const _alertChannelId   = 'traffic_alerts_channel';
   static const _alertChannelName = 'Traffic Alerts';
-  static const _monitoringChannelId = 'traffic_monitoring';
+
+  static const _monitoringChannelId   = 'traffic_monitoring';
   static const _monitoringChannelName = 'Monitoring';
-  static const _monitoringNotifId = 999;
+  static const _monitoringNotifId     = 999;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   int _nextAlertId = 0;
 
-  // ── Lifecycle ────────────────────────────────────────────────────────────
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   static Future<void> init() async {
     const androidSettings =
@@ -36,8 +38,8 @@ class NotificationService {
       const AndroidNotificationChannel(
         _alertChannelId,
         _alertChannelName,
-        description: 'Alerts when your route traffic status changes',
-        importance: Importance.high,
+        description: 'Real-time traffic alerts for your route home',
+        importance: Importance.max,
       ),
     );
 
@@ -45,7 +47,7 @@ class NotificationService {
       const AndroidNotificationChannel(
         _monitoringChannelId,
         _monitoringChannelName,
-        description: 'Persistent notification shown while monitoring is active',
+        description: 'Shown while Traffic Builder is monitoring your route',
         importance: Importance.low,
       ),
     );
@@ -53,14 +55,31 @@ class NotificationService {
     debugPrint('[NotificationService] Initialised — channels created');
   }
 
-  // ── Traffic alert ────────────────────────────────────────────────────────
+  // ── Permissions (Android 13+) ─────────────────────────────────────────────
 
-  Future<void> showTrafficAlert(String title, String body) async {
+  Future<void> requestPermission() async {
+    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    await androidImpl?.requestNotificationsPermission();
+  }
+
+  // ── Traffic alert ─────────────────────────────────────────────────────────
+
+  /// Shows a heads-up notification using the copy engine keyed on [status].
+  ///
+  /// [etaText]      — human-readable travel time, e.g. "18 mins"
+  /// [delayMinutes] — extra minutes vs. no-traffic journey (0 = on time)
+  Future<void> showTrafficStatus(
+    TrafficStatus status,
+    String etaText,
+    int delayMinutes,
+  ) async {
+    final (title, body) = _buildCopy(status, etaText, delayMinutes);
     const androidDetails = AndroidNotificationDetails(
       _alertChannelId,
       _alertChannelName,
-      channelDescription: 'Alerts when your route traffic status changes',
-      importance: Importance.high,
+      channelDescription: 'Real-time traffic alerts for your route home',
+      importance: Importance.max,
       priority: Priority.high,
       icon: '@mipmap/ic_launcher',
     );
@@ -72,7 +91,7 @@ class NotificationService {
     );
   }
 
-  // ── Persistent monitoring indicator ─────────────────────────────────────
+  // ── Persistent monitoring indicator ──────────────────────────────────────
 
   Future<void> showMonitoringActive() async {
     const androidDetails = AndroidNotificationDetails(
@@ -95,4 +114,26 @@ class NotificationService {
   Future<void> cancelMonitoringActive() async {
     await _plugin.cancel(_monitoringNotifId);
   }
+
+  // ── Copy engine ───────────────────────────────────────────────────────────
+
+  (String title, String body) _buildCopy(
+    TrafficStatus status,
+    String etaText,
+    int delayMinutes,
+  ) =>
+      switch (status) {
+        TrafficStatus.calm => (
+          '🟢 All Clear',
+          'Happy travels twin | ETA: $etaText (Delay: ${delayMinutes}m)',
+        ),
+        TrafficStatus.bookey => (
+          '⚠️ Traffic Building',
+          'Leave now or forever hold your peace | ETA: $etaText (+${delayMinutes}m)',
+        ),
+        TrafficStatus.ggs => (
+          "GG's",
+          'Yeah...just get cozy bro | ETA: $etaText (+${delayMinutes}m)',
+        ),
+      };
 }

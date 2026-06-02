@@ -8,6 +8,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   ApiClient.init();
   await NotificationService.init();
+  await NotificationService.instance.requestPermission();
   runApp(const TrafficBuilderApp());
 }
 

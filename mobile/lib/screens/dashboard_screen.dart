@@ -9,6 +9,7 @@ import '../services/session_service.dart';
 import '../services/socket_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
+import '../services/tracking_coordinator.dart';
 import '../theme/app_theme.dart';
 import '../widgets/address_search.dart';
 import '../widgets/frequency_selector.dart';
@@ -31,6 +32,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _socket      = SocketService();
   final _locationSvc = LocationService();
   final _notifSvc    = NotificationService.instance;
+
+  // Lazily wired to _socket so both share the same connection.
+  late final _coordinator = TrackingCoordinator(_socket);
 
   AppLocation?      _currentLocation;
   AppLocation?      _homeLocation;
@@ -69,7 +73,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     setState(() => _connecting = true);
 
-    // Health check first — distinguishes "server down" from a session error.
     debugPrint('[Dashboard] Starting monitoring — target: ${AppConfig.backendBaseUrl}');
     final serverReachable = await _sessionSvc.checkHealth();
     if (!serverReachable) {
@@ -97,6 +100,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     _socket.connect();
     _socketSub = _socket.updates.listen(_onTrafficUpdate);
+    _coordinator.start(kUserId, _frequencyMinutes);
 
     _locationSvc.startTracking((loc) {
       setState(() => _currentLocation = loc);
@@ -108,6 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _stopMonitoring() async {
+    _coordinator.stop();
     await _sessionSvc.stopSession(kUserId);
     _socketSub?.cancel();
     _locationSvc.stopTracking();
@@ -129,11 +134,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
 
     if (update.notification != null) {
-      final n = update.notification!;
-      _notifSvc.showTrafficAlert(
-        n.isWorsening ? 'Traffic Building' : 'Traffic Clearing',
-        n.message,
-      );
+      try {
+        final c = update.condition;
+        final delayMinutes =
+            ((c.durationInTraffic - c.duration) / 60).round().clamp(0, 9999);
+        _notifSvc.showTrafficStatus(c.status, c.etaFormatted, delayMinutes);
+      } catch (e) {
+        debugPrint('[Dashboard] Failed to show notification: $e');
+      }
     }
   }
 
@@ -141,6 +149,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _onFrequencyChanged(int value) {
     setState(() => _frequencyMinutes = value);
+    _coordinator.updateInterval(value);
     if (_monitoring) {
       _sessionSvc.updateSettings(kUserId, notificationFrequencyMinutes: value);
     }
@@ -177,6 +186,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _coordinator.dispose();
     _socketSub?.cancel();
     _socket.dispose();
     _locationSvc.dispose();
@@ -195,14 +205,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _SectionLabel('HOME LOCATION'),
+            _SectionLabel('The Bando'),
             const SizedBox(height: 8),
             AddressSearch(
               current: _homeLocation,
               onSelected: _onHomeSelected,
             ),
             const SizedBox(height: 20),
-            _SectionLabel('NOTIFICATION FREQUENCY'),
+            _SectionLabel('How eager are we today?'),
             const SizedBox(height: 8),
             FrequencySelector(
               selected: _frequencyMinutes,
