@@ -133,6 +133,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
 
+    // Keep the persistent monitoring notification up to date with live ETA
+    _notifSvc.updateMonitoringActive(update.condition);
+
     if (update.notification != null) {
       try {
         final c = update.condition;

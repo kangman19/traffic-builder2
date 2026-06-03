@@ -94,6 +94,16 @@ class NotificationService {
   // ── Persistent monitoring indicator ──────────────────────────────────────
 
   Future<void> showMonitoringActive() async {
+    await _showMonitoringNotif('Monitoring your route home…');
+  }
+
+  Future<void> updateMonitoringActive(TrafficCondition cond) async {
+    final body =
+        'ETA ${cond.etaMinutes}  ·  Delay ${cond.delayShort}  ·  Arrives ${cond.arrivalTime}';
+    await _showMonitoringNotif(body);
+  }
+
+  Future<void> _showMonitoringNotif(String body) async {
     const androidDetails = AndroidNotificationDetails(
       _monitoringChannelId,
       _monitoringChannelName,
@@ -106,7 +116,7 @@ class NotificationService {
     await _plugin.show(
       _monitoringNotifId,
       'Traffic Builder',
-      'Monitoring your route home…',
+      body,
       const NotificationDetails(android: androidDetails),
     );
   }

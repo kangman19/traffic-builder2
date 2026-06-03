@@ -107,11 +107,12 @@ class TrafficCondition {
     return '${km.toStringAsFixed(1)} km';
   }
 
-  /// Estimated arrival time as 12-hour clock, e.g. "8:42 AM"
+  /// Estimated arrival time as 12-hour clock in local timezone, e.g. "8:42 AM"
   String get arrivalTime {
-    final h = eta.hour == 0 ? 12 : (eta.hour > 12 ? eta.hour - 12 : eta.hour);
-    final m = eta.minute.toString().padLeft(2, '0');
-    final period = eta.hour >= 12 ? 'PM' : 'AM';
+    final local = eta.toLocal();
+    final h = local.hour == 0 ? 12 : (local.hour > 12 ? local.hour - 12 : local.hour);
+    final m = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
     return '$h:$m $period';
   }
 }

@@ -23,6 +23,13 @@ class TrackingCoordinator {
     _userId = userId;
     _intervalSub = _intervalUpdates.stream.listen(_reschedule);
     _reschedule(intervalMinutes);
+    // Fire an initial check after the socket has time to connect
+    Future.delayed(const Duration(seconds: 3), () {
+      if (_userId != null) {
+        debugPrint('[TrackingCoordinator] Initial check for $_userId');
+        _socket.checkTraffic(_userId!);
+      }
+    });
     debugPrint('[TrackingCoordinator] Started — interval: ${intervalMinutes}m');
   }
 

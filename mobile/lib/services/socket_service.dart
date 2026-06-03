@@ -33,8 +33,10 @@ class SocketService {
       debugPrint('[SocketService] Connected');
     });
 
-    _socket!.on('traffic_update', (data) {
+    _socket!.on('traffic_update', (rawData) {
       try {
+        // socket_io_client may wrap the payload in a List
+        final data = rawData is List ? rawData[0] : rawData;
         final update =
             TrafficUpdate.fromJson(Map<String, dynamic>.from(data as Map));
         _updateController.add(update);

@@ -37,9 +37,11 @@ class TrafficUpdate {
 
   factory TrafficUpdate.fromJson(Map<String, dynamic> json) => TrafficUpdate(
         userId: json['userId'] as String,
-        condition: TrafficCondition.fromJson(json['condition'] as Map<String, dynamic>),
+        condition: TrafficCondition.fromJson(
+            Map<String, dynamic>.from(json['condition'] as Map)),
         notification: json['notification'] != null
-            ? TrafficNotification.fromJson(json['notification'] as Map<String, dynamic>)
+            ? TrafficNotification.fromJson(
+                Map<String, dynamic>.from(json['notification'] as Map))
             : null,
       );
 }
