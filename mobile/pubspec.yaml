@@ -31,6 +31,9 @@ dependencies:
   # Local push notifications
   flutter_local_notifications: ^18.0.1
 
+  # Background foreground service — keeps socket alive when app is off-screen
+  flutter_background_service: ^5.0.8
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

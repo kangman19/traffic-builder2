@@ -1,15 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import '../core/config/app_config.dart';
 import '../core/network/api_error.dart';
 import '../models/location.dart';
 import '../models/traffic_condition.dart';
 import '../models/traffic_update.dart';
 import '../services/session_service.dart';
-import '../services/socket_service.dart';
 import '../services/location_service.dart';
-import '../services/notification_service.dart';
-import '../services/tracking_coordinator.dart';
 import '../theme/app_theme.dart';
 import '../widgets/address_search.dart';
 import '../widgets/frequency_selector.dart';
@@ -27,29 +25,42 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   final _sessionSvc  = SessionService();
-  final _socket      = SocketService();
   final _locationSvc = LocationService();
-  final _notifSvc    = NotificationService.instance;
-
-  // Lazily wired to _socket so both share the same connection.
-  late final _coordinator = TrackingCoordinator(_socket);
 
   AppLocation?      _currentLocation;
   AppLocation?      _homeLocation;
   TrafficCondition? _latestCondition;
-  bool _monitoring  = false;
-  bool _connecting  = false;
+  bool _monitoring   = false;
+  bool _connecting   = false;
+  bool _bgConnected  = false;
   int  _frequencyMinutes = 5;
 
   final List<NotificationEntry> _notifications = [];
-  StreamSubscription<TrafficUpdate>? _socketSub;
+
+  // Subscriptions to background service IPC streams.
+  StreamSubscription<Map<String, dynamic>?>? _updateSub;
+  StreamSubscription<Map<String, dynamic>?>? _statusSub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _detectLocation();
+    _stopStaleService();
+  }
+
+  // ── App lifecycle ─────────────────────────────────────────────────────────
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _monitoring) {
+      // App returned to foreground — ask the background service for a fresh
+      // traffic check so the in-app display is immediately up to date.
+      FlutterBackgroundService().invoke('checkNow');
+    }
   }
 
   // ── Location ──────────────────────────────────────────────────────────────
@@ -57,6 +68,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _detectLocation() async {
     final loc = await _locationSvc.getCurrentLocation();
     if (mounted) setState(() => _currentLocation = loc);
+  }
+
+  // If the service was left running from a previous session (e.g. app killed
+  // while monitoring), stop it so the UI starts in a clean state.
+  Future<void> _stopStaleService() async {
+    if (await FlutterBackgroundService().isRunning()) {
+      FlutterBackgroundService().invoke('stop');
+    }
   }
 
   // ── Session lifecycle ─────────────────────────────────────────────────────
@@ -76,12 +95,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     debugPrint('[Dashboard] Starting monitoring — target: ${AppConfig.backendBaseUrl}');
     final serverReachable = await _sessionSvc.checkHealth();
     if (!serverReachable) {
-      debugPrint('[Dashboard] Health check failed — aborting');
       setState(() => _connecting = false);
       _showError('Server unreachable at ${AppConfig.backendBaseUrl}\nRun: cd server && yarn dev');
       return;
     }
-    debugPrint('[Dashboard] Server healthy — creating session');
 
     final (:session, :error) = await _sessionSvc.createSession(
       userId: kUserId,
@@ -91,68 +108,89 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     if (error != null || session == null) {
-      debugPrint('[Dashboard] createSession failed: ${error?.logMessage}');
       setState(() => _connecting = false);
       _showError(_friendlyError(error));
       return;
     }
-    debugPrint('[Dashboard] Session created successfully');
+    debugPrint('[Dashboard] Session created — starting background service');
 
-    _socket.connect();
-    _socketSub = _socket.updates.listen(_onTrafficUpdate);
-    _coordinator.start(kUserId, _frequencyMinutes);
+    // Subscribe to background service events before starting so we don't miss
+    // the first update.
+    final bgService = FlutterBackgroundService();
+    _updateSub = bgService.on('trafficUpdate').listen(_onBgUpdate);
+    _statusSub = bgService.on('socketStatus').listen(_onSocketStatus);
+
+    // Start the foreground service and pass it the config.
+    await bgService.startService();
+    bgService.invoke('start', {
+      'userId'   : kUserId,
+      'socketUrl': AppConfig.backendSocketUrl,
+    });
 
     _locationSvc.startTracking((loc) {
       setState(() => _currentLocation = loc);
       _sessionSvc.updateLocation(kUserId, loc);
     });
 
-    await _notifSvc.showMonitoringActive();
     setState(() { _monitoring = true; _connecting = false; });
   }
 
   Future<void> _stopMonitoring() async {
-    _coordinator.stop();
+    FlutterBackgroundService().invoke('stop');
+    _updateSub?.cancel();
+    _statusSub?.cancel();
     await _sessionSvc.stopSession(kUserId);
-    _socketSub?.cancel();
     _locationSvc.stopTracking();
-    await _notifSvc.cancelMonitoringActive();
-    setState(() { _monitoring = false; _latestCondition = null; });
+    setState(() {
+      _monitoring  = false;
+      _bgConnected = false;
+      _latestCondition = null;
+    });
   }
 
-  // ── Traffic updates ───────────────────────────────────────────────────────
+  // ── Background service callbacks ──────────────────────────────────────────
 
-  void _onTrafficUpdate(TrafficUpdate update) {
+  void _onBgUpdate(Map<String, dynamic>? data) {
+    if (data == null || !mounted) return;
+
+    final condition = TrafficCondition(
+      duration          : (data['duration']          as num).toInt(),
+      durationInTraffic : (data['durationInTraffic'] as num).toInt(),
+      distance          : (data['distance']          as num).toInt(),
+      status            : TrafficStatusX.fromString(data['status'] as String),
+      timestamp         : DateTime.parse(data['timestamp'] as String),
+      eta               : DateTime.parse(data['eta']       as String),
+    );
+
+    TrafficNotification? notification;
+    if (data.containsKey('notifType')) {
+      notification = TrafficNotification(
+        type      : data['notifType']  as String,
+        currentETA: data['notifETA']   as String,
+        delay     : data['notifDelay'] as String,
+      );
+    }
+
     setState(() {
-      _latestCondition = update.condition;
-      if (update.notification != null) {
-        _notifications.insert(0, NotificationEntry(
-          time: DateTime.now(),
-          notification: update.notification!,
-        ));
+      _latestCondition = condition;
+      if (notification != null) {
+        _notifications.insert(
+          0,
+          NotificationEntry(time: DateTime.now(), notification: notification),
+        );
       }
     });
+  }
 
-    // Keep the persistent monitoring notification up to date with live ETA
-    _notifSvc.updateMonitoringActive(update.condition);
-
-    if (update.notification != null) {
-      try {
-        final c = update.condition;
-        final delayMinutes =
-            ((c.durationInTraffic - c.duration) / 60).round().clamp(0, 9999);
-        _notifSvc.showTrafficStatus(c.status, c.etaFormatted, delayMinutes);
-      } catch (e) {
-        debugPrint('[Dashboard] Failed to show notification: $e');
-      }
-    }
+  void _onSocketStatus(Map<String, dynamic>? data) {
+    if (data == null || !mounted) return;
+    setState(() => _bgConnected = data['connected'] as bool? ?? false);
   }
 
   // ── Settings ──────────────────────────────────────────────────────────────
 
   void _onFrequencyChanged(int value) {
     setState(() => _frequencyMinutes = value);
-    _coordinator.updateInterval(value);
     if (_monitoring) {
       _sessionSvc.updateSettings(kUserId, notificationFrequencyMinutes: value);
     }
@@ -169,29 +207,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   String _friendlyError(ApiError? e) {
     if (e == null) return 'Failed to start monitoring.';
     return switch (e) {
-      MissingApiKeyError()                               => 'API key not configured.',
-      AuthDeniedError()                                  => 'API key rejected — check server/.env.',
-      QuotaExceededError()                               => 'API quota exceeded. Try later.',
-      NetworkError(statusCode: final c) when c != null   => 'Server returned HTTP $c — check server console.',
-      NetworkError()                                     => 'No response from ${AppConfig.backendBaseUrl}',
-      ParseError()                                       => 'Unexpected server response — check server console.',
-      SessionNotFoundError()                             => 'Session not found.',
+      MissingApiKeyError()                             => 'API key not configured.',
+      AuthDeniedError()                                => 'API key rejected — check server/.env.',
+      QuotaExceededError()                             => 'API quota exceeded. Try later.',
+      NetworkError(statusCode: final c) when c != null => 'Server returned HTTP $c — check server console.',
+      NetworkError()                                   => 'No response from ${AppConfig.backendBaseUrl}',
+      ParseError()                                     => 'Unexpected server response — check server console.',
+      SessionNotFoundError()                           => 'Session not found.',
     };
   }
 
   @override
   void dispose() {
-    _coordinator.dispose();
-    _socketSub?.cancel();
-    _socket.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _updateSub?.cancel();
+    _statusSub?.cancel();
     _locationSvc.dispose();
     super.dispose();
   }
@@ -264,7 +301,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _monitoring
-                  ? (_socket.isConnected ? AppTheme.accent : Colors.orange)
+                  ? (_bgConnected ? AppTheme.accent : Colors.orange)
                   : AppTheme.textMuted,
             ),
           ),
@@ -293,14 +330,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// ── Sub-widgets ──────────────────────────────────────────────────────────────
+// ── Sub-widgets ───────────────────────────────────────────────────────────────
 
 class _SectionLabel extends StatelessWidget {
   final String text;
   const _SectionLabel(this.text);
 
   @override
-  Widget build(BuildContext context) => Text(text, style: AppTheme.labelStyle);
+  Widget build(BuildContext context) =>
+      Text(text, style: AppTheme.labelStyle);
 }
 
 class _StartStopButton extends StatelessWidget {
