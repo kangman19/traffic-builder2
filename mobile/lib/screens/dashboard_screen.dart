@@ -25,8 +25,7 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
-    with WidgetsBindingObserver {
+class _DashboardScreenState extends State<DashboardScreen> {
   final _sessionSvc  = SessionService();
   final _locationSvc = LocationService();
 
@@ -47,20 +46,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _detectLocation();
     _stopStaleService();
-  }
-
-  // ── App lifecycle ─────────────────────────────────────────────────────────
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _monitoring) {
-      // App returned to foreground — ask the background service for a fresh
-      // traffic check so the in-app display is immediately up to date.
-      FlutterBackgroundService().invoke('checkNow');
-    }
   }
 
   // ── Location ──────────────────────────────────────────────────────────────
@@ -123,8 +110,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     // Start the foreground service and pass it the config.
     await bgService.startService();
     bgService.invoke('start', {
-      'userId'   : kUserId,
-      'socketUrl': AppConfig.backendSocketUrl,
+      'userId'          : kUserId,
+      'socketUrl'       : AppConfig.backendSocketUrl,
+      'frequencyMinutes': _frequencyMinutes,
     });
 
     _locationSvc.startTracking((loc) {
@@ -193,6 +181,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() => _frequencyMinutes = value);
     if (_monitoring) {
       _sessionSvc.updateSettings(kUserId, notificationFrequencyMinutes: value);
+      FlutterBackgroundService().invoke(
+        'updateFrequency',
+        {'frequencyMinutes': value},
+      );
     }
   }
 
@@ -226,7 +218,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _updateSub?.cancel();
     _statusSub?.cancel();
     _locationSvc.dispose();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
@@ -10,10 +11,10 @@ import '../models/traffic_update.dart';
 
 // ── Channel / notification constants (must match NotificationService) ─────────
 
-const _monitoringChannelId   = 'traffic_monitoring';
-const _alertChannelId        = 'traffic_alerts_channel';
-const _alertChannelName      = 'Traffic Alerts';
-const _monitoringNotifId     = 999;
+const _monitoringChannelId = 'traffic_monitoring';
+const _alertChannelId      = 'traffic_alerts_channel';
+const _alertChannelName    = 'Traffic Alerts';
+const _monitoringNotifId   = 999;
 
 // ── Service configuration (called once from main()) ───────────────────────────
 
@@ -48,13 +49,14 @@ Future<bool> _onIosBackground(ServiceInstance service) async {
 // ── Background isolate entry point ────────────────────────────────────────────
 //
 // Runs in a separate Dart isolate as an Android foreground service.
-// Owns the Socket.io connection so it stays alive when the app is off-screen.
+// Owns the Socket.io connection and the periodic poll timer independently of
+// the UI isolate — updates fire on schedule regardless of app visibility.
 
 @pragma('vm:entry-point')
 void _onServiceStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
 
-  // Alert notifications (separate from the foreground-service monitoring notif).
+  // Alert notifications — initialised entirely inside this isolate.
   final notifPlugin = FlutterLocalNotificationsPlugin();
   await notifPlugin.initialize(
     const InitializationSettings(
@@ -62,10 +64,12 @@ void _onServiceStart(ServiceInstance service) async {
     ),
   );
 
-  // Mutable service state — safe to capture in closures inside this function.
+  // Mutable isolate-local state.
   io.Socket? socket;
-  int        alertId      = 1000; // IDs above 999 (monitoring notif)
+  int        alertId          = 1000; // IDs above 999 (monitoring notif)
   String?    activeUserId;
+  int        frequencyMinutes = 10;
+  Timer?     pollTimer;
 
   // ── Notification helpers ──────────────────────────────────────────────────
 
@@ -100,24 +104,44 @@ void _onServiceStart(ServiceInstance service) async {
     );
   }
 
-  // ── Socket event handler ──────────────────────────────────────────────────
+  // ── Poll timer ────────────────────────────────────────────────────────────
+  //
+  // Client-driven failsafe: emits check_traffic on schedule so updates fire
+  // even if the server push is missed while the socket was briefly offline.
+
+  void startPollTimer() {
+    pollTimer?.cancel();
+    final userId = activeUserId;
+    if (userId == null) return;
+    pollTimer = Timer.periodic(Duration(minutes: frequencyMinutes), (_) {
+      if (socket?.connected == true) {
+        debugPrint('[BGService] Poll tick — check_traffic for $userId');
+        socket!.emit('check_traffic', {'userId': userId});
+      } else {
+        debugPrint('[BGService] Poll tick skipped — socket not connected, awaiting reconnect');
+      }
+    });
+    debugPrint('[BGService] Poll timer armed — every ${frequencyMinutes}m');
+  }
+
+  // ── Traffic update handler ────────────────────────────────────────────────
 
   void handleTrafficUpdate(TrafficUpdate update) {
     final c = update.condition;
 
-    // 1. Update the persistent foreground-service notification.
+    // 1. Refresh the persistent foreground-service notification.
     updateMonitoringNotif(
       'ETA ${c.etaMinutes}  ·  Delay ${c.delayShort}  ·  Arrives ${c.arrivalTime}',
     );
 
-    // 2. Heads-up alert when traffic status changes.
+    // 2. Heads-up alert on status change — fired directly from this isolate.
     if (update.notification != null) {
       final delayMins =
           ((c.durationInTraffic - c.duration) / 60).round().clamp(0, 9999);
       showAlert(c.status, c.etaFormatted, delayMins);
     }
 
-    // 3. Forward data to the main UI isolate (no-op when app is backgrounded).
+    // 3. Forward decoded data to UI isolate for in-app display.
     service.invoke('trafficUpdate', _encodeUpdate(update));
   }
 
@@ -144,13 +168,14 @@ void _onServiceStart(ServiceInstance service) async {
     socket!.on('connect', (_) {
       debugPrint('[BGService] Socket connected — userId: $userId');
       service.invoke('socketStatus', {'connected': true});
-      // Request fresh data immediately on every (re)connect.
+      // Immediately request fresh data on every (re)connect rather than
+      // waiting for the next poll-timer tick.
       socket!.emit('check_traffic', {'userId': userId});
     });
 
     socket!.on('traffic_update', (rawData) {
       try {
-        final data = rawData is List ? rawData[0] : rawData;
+        final data   = rawData is List ? rawData[0] : rawData;
         final update = TrafficUpdate.fromJson(
           Map<String, dynamic>.from(data as Map),
         );
@@ -174,27 +199,33 @@ void _onServiceStart(ServiceInstance service) async {
 
   // ── IPC from main UI isolate ──────────────────────────────────────────────
 
-  // Start monitoring: connect socket with provided config.
+  // Initialise: connect socket + arm poll timer with the supplied configuration.
   service.on('start').listen((data) {
     if (data == null) return;
-    final userId    = data['userId']    as String;
-    final socketUrl = data['socketUrl'] as String;
-    debugPrint('[BGService] Starting — userId: $userId  url: $socketUrl');
+    final userId     = data['userId']            as String;
+    final socketUrl  = data['socketUrl']         as String;
+    frequencyMinutes = (data['frequencyMinutes'] as num?)?.toInt() ?? 10;
+    debugPrint(
+      '[BGService] Starting — userId: $userId  url: $socketUrl  freq: ${frequencyMinutes}m',
+    );
     updateMonitoringNotif('Monitoring your route home…');
     connectSocket(userId, socketUrl);
+    startPollTimer();
   });
 
-  // Force an immediate traffic check (e.g. app came to foreground).
-  service.on('checkNow').listen((_) {
-    if (socket?.connected == true && activeUserId != null) {
-      debugPrint('[BGService] checkNow — requesting traffic for $activeUserId');
-      socket!.emit('check_traffic', {'userId': activeUserId});
-    }
+  // Dynamic frequency update: cancel the running timer and re-arm immediately.
+  service.on('updateFrequency').listen((data) {
+    if (data == null) return;
+    frequencyMinutes = (data['frequencyMinutes'] as num).toInt();
+    debugPrint('[BGService] Frequency → ${frequencyMinutes}m — restarting poll timer');
+    startPollTimer();
   });
 
-  // Stop monitoring: disconnect socket and kill the service.
+  // Teardown: cancel timer, disconnect socket, stop foreground service.
   service.on('stop').listen((_) {
     debugPrint('[BGService] Stopping');
+    pollTimer?.cancel();
+    pollTimer    = null;
     socket?.disconnect();
     socket?.dispose();
     socket       = null;
@@ -203,10 +234,10 @@ void _onServiceStart(ServiceInstance service) async {
   });
 }
 
-// ── Data serialization ─────────────────────────────────────────────────────────
+// ── Data serialization ────────────────────────────────────────────────────────
 //
-// IPC between isolates uses plain Map<String, dynamic>, so we encode
-// TrafficUpdate into primitives and decode it back in the main isolate.
+// IPC between isolates uses plain Map<String, dynamic> — encode TrafficUpdate
+// into primitives and decode it back in the UI isolate.
 
 Map<String, dynamic> _encodeUpdate(TrafficUpdate update) {
   final c = update.condition;
@@ -226,8 +257,6 @@ Map<String, dynamic> _encodeUpdate(TrafficUpdate update) {
   };
 }
 
-// Returns the server-side string value for a status so TrafficStatusX.fromString
-// can decode it correctly in the main isolate.
 String _statusStr(TrafficStatus s) => switch (s) {
   TrafficStatus.calm   => 'calm',
   TrafficStatus.bookey => 'bookey',
