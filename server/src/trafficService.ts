@@ -1,6 +1,5 @@
 import {
   fetchDirectionsCondition,
-  buildMockCondition,
   type Location,
   type TrafficStatus,
   type TrafficCondition,
@@ -110,16 +109,14 @@ async function tick(userId: string): Promise<void> {
       condition = result.condition;
       console.log(
         `[TrafficService] ${userId} — ${condition.status} ` +
-        `(${Math.round(condition.durationInTraffic / 60)} min, source=${condition.dataSource})`
+        `(${Math.round(condition.durationInTraffic / 60)} min)`
       );
     } else {
-      // Log clearly for Logcat visibility, fall back to distance-aware mock.
       console.error(
         `[TrafficService] Directions fetch failed for ${userId}: ` +
         `reason=${result.reason}, detail=${result.detail}`
       );
-      console.warn(`[TrafficService] Falling back to mock condition for ${userId}`);
-      condition = buildMockCondition(session.currentLocation, session.homeLocation);
+      return;
     }
 
     const previousStatus = session.previousStatus;

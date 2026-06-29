@@ -17,7 +17,6 @@ export interface TrafficCondition {
   status: TrafficStatus;
   timestamp: Date;
   eta: Date;
-  dataSource: 'live' | 'mock';
 }
 
 // ── Result union ───────────────────────────────────────────────────────────
@@ -50,36 +49,6 @@ export function statusFromMultiplier(multiplier: number): TrafficStatus {
   return "GG's";
 }
 
-// ── Distance-aware mock ────────────────────────────────────────────────────
-// Haversine formula gives realistic base duration so mock reflects pin positions.
-
-export function buildMockCondition(from: Location, to: Location): TrafficCondition {
-  const R = 6_371_000; // metres
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(to.lat - from.lat);
-  const dLon = toRad(to.long - from.long);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLon / 2) ** 2;
-  const distanceM = Math.max(500, 2 * R * Math.asin(Math.sqrt(a)));
-
-  // Assume 40 km/h average urban speed for the un-congested base time.
-  const baseDuration = Math.round((distanceM / 40_000) * 3_600);
-  const multiplier = 1.0 + Math.random() * 1.5;
-  const durationInTraffic = Math.round(baseDuration * multiplier);
-  const now = new Date();
-
-  return {
-    duration: baseDuration,
-    durationInTraffic,
-    distance: Math.round(distanceM),
-    status: statusFromMultiplier(multiplier),
-    timestamp: now,
-    eta: new Date(now.getTime() + durationInTraffic * 1_000),
-    dataSource: 'mock',
-  };
-}
-
 // ── Live fetch ─────────────────────────────────────────────────────────────
 
 export async function fetchDirectionsCondition(
@@ -87,8 +56,8 @@ export async function fetchDirectionsCondition(
   to: Location
 ): Promise<DirectionsResult> {
   if (!hasGoogleMapsKey()) {
-    console.log('[DirectionsService] No API key configured — returning mock condition');
-    return { ok: true, condition: buildMockCondition(from, to) };
+    console.error('[DirectionsService] No API key configured');
+    return { ok: false, reason: 'missing_key', detail: 'GOOGLE_MAPS_DIRECTIONS_API_KEY is not set' };
   }
 
   try {
@@ -186,7 +155,6 @@ function parseDirectionsResponse(body: unknown): DirectionsResult {
       status: statusFromMultiplier(multiplier),
       timestamp: now,
       eta: new Date(now.getTime() + effectiveDurationInTraffic * 1_000),
-      dataSource: 'live',
     },
   };
 }
