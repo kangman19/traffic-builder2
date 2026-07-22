@@ -4,10 +4,12 @@ import 'package:flutter_background_service/flutter_background_service.dart';
 import '../core/config/app_config.dart';
 import '../core/network/api_error.dart';
 import '../models/location.dart';
+import '../models/saved_place.dart';
 import '../models/traffic_condition.dart';
 import '../models/traffic_update.dart';
 import '../services/session_service.dart';
 import '../services/location_service.dart';
+import '../services/saved_home_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/address_search.dart';
 import '../widgets/frequency_selector.dart';
@@ -30,8 +32,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _locationSvc = LocationService();
 
   AppLocation?      _currentLocation;
-  AppLocation?      _homeLocation;
+  SavedPlace?       _destination;   // destination in effect, labelled
+  SavedPlace?       _savedHome;     // persisted home, null until first save
   TrafficCondition? _latestCondition;
+
+  /// Wire-format view of the destination — what the backend actually receives.
+  AppLocation? get _homeLocation => _destination?.location;
+
   bool _monitoring   = false;
   bool _connecting   = false;
   bool _bgConnected  = false;
@@ -48,6 +55,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _detectLocation();
     _stopStaleService();
+    _restoreSavedHome();
+  }
+
+  // ── Saved home ────────────────────────────────────────────────────────────
+
+  /// Rehydrates the persisted home on launch and applies it as the active
+  /// destination, so a returning user can hit START without re-searching.
+  Future<void> _restoreSavedHome() async {
+    final saved = await SavedHomeService.loadHome();
+    if (saved == null || !mounted) return;
+    setState(() {
+      _savedHome   = saved;
+      _destination = saved;
+    });
+  }
+
+  Future<void> _onSaveHome(SavedPlace place) async {
+    await SavedHomeService.saveHome(place);
+    if (!mounted) return;
+    setState(() {
+      _savedHome   = place;
+      _destination = place;
+    });
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+        content: Text('Saved'),
+        duration: Duration(seconds: 2),
+      ));
   }
 
   // ── Location ──────────────────────────────────────────────────────────────
@@ -188,10 +224,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _onHomeSelected(AppLocation loc) {
-    setState(() => _homeLocation = loc);
+  /// Single funnel for every way a destination gets chosen — search result,
+  /// saved-home tap, or map pin drag.
+  void _onDestinationSelected(SavedPlace place) {
+    setState(() => _destination = place);
     if (_monitoring) {
-      _sessionSvc.updateSettings(kUserId, homeLocation: loc);
+      _sessionSvc.updateSettings(kUserId, homeLocation: place.location);
     }
   }
 
@@ -240,7 +278,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 8),
             AddressSearch(
               current: _homeLocation,
-              onSelected: _onHomeSelected,
+              savedHome: _savedHome,
+              onSelected: _onDestinationSelected,
+              onSaveHome: _onSaveHome,
+              onSelectHome: _onDestinationSelected,
             ),
             const SizedBox(height: 20),
             _SectionLabel('How eager are we today?'),
@@ -261,7 +302,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               trafficStatus: _latestCondition?.status,
               onCurrentLocationChanged: (loc) =>
                   setState(() => _currentLocation = loc),
-              onHomeLocationChanged: _onHomeSelected,
+              // A dragged pin carries no address text, so fall back to the
+              // formatted lat/long for the label.
+              onHomeLocationChanged: (loc) =>
+                  _onDestinationSelected(SavedPlace.fromCoordinates(loc)),
             ),
             if (_notifications.isNotEmpty) ...[
               const SizedBox(height: 20),

@@ -1,17 +1,35 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/location.dart';
+import '../models/saved_place.dart';
 import '../services/geocoding_service.dart';
 import '../theme/app_theme.dart';
 
 class AddressSearch extends StatefulWidget {
+  /// The destination currently in effect, used for the placeholder hint when
+  /// it was set from outside this widget (e.g. by dragging the map pin).
   final AppLocation? current;
-  final ValueChanged<AppLocation> onSelected;
+
+  /// The persisted home, or null if none has been saved yet. Drives the home
+  /// icon's enabled state.
+  final SavedPlace? savedHome;
+
+  /// Fires when the user picks a search result.
+  final ValueChanged<SavedPlace> onSelected;
+
+  /// Fires when the user taps '+' to persist the active selection.
+  final ValueChanged<SavedPlace> onSaveHome;
+
+  /// Fires when the user taps the home icon to reuse the saved place.
+  final ValueChanged<SavedPlace> onSelectHome;
 
   const AddressSearch({
     super.key,
     required this.current,
+    required this.savedHome,
     required this.onSelected,
+    required this.onSaveHome,
+    required this.onSelectHome,
   });
 
   @override
@@ -27,6 +45,11 @@ class _AddressSearchState extends State<AddressSearch> {
   List<GeocodingResult> _results = [];
   bool _loading = false;
   bool _focused = false;
+
+  /// The place backing the text currently in the field — non-null only while
+  /// that text came from an actual selection rather than free typing. This is
+  /// what gates the '+' icon.
+  SavedPlace? _activePlace;
 
   @override
   void initState() {
@@ -54,6 +77,11 @@ class _AddressSearchState extends State<AddressSearch> {
 
   void _onChanged(String query) {
     _debounce?.cancel();
+
+    // Free typing invalidates any prior selection — the text no longer
+    // corresponds to a resolved coordinate, so '+' must go inert.
+    if (_activePlace != null) setState(() => _activePlace = null);
+
     if (query.trim().isEmpty) {
       setState(() => _results = []);
       return;
@@ -70,10 +98,28 @@ class _AddressSearchState extends State<AddressSearch> {
   void _select(GeocodingResult r) {
     // Cancel any pending focus-loss clear so it doesn't race with this call.
     _focusTimer?.cancel();
-    widget.onSelected(r.location);
-    _controller.clear();
+    final place = SavedPlace(label: r.shortName, location: r.location);
+    widget.onSelected(place);
+    // Assigning .text does not re-enter _onChanged, so _activePlace survives.
+    _controller.text = place.label;
     _focusNode.unfocus();
-    setState(() => _results = []);
+    setState(() { _activePlace = place; _results = []; });
+  }
+
+  void _saveActivePlace() {
+    final place = _activePlace;
+    if (place == null) return;
+    widget.onSaveHome(place);
+  }
+
+  void _useSavedHome() {
+    final saved = widget.savedHome;
+    if (saved == null) return;
+    _focusTimer?.cancel();
+    _controller.text = saved.label;
+    _focusNode.unfocus();
+    setState(() { _activePlace = saved; _results = []; });
+    widget.onSelectHome(saved);
   }
 
   @override
@@ -88,7 +134,9 @@ class _AddressSearchState extends State<AddressSearch> {
 
   @override
   Widget build(BuildContext context) {
-    final showHint = widget.current != null && !_focused && _controller.text.isEmpty;
+    final showHint   = widget.current != null && !_focused && _controller.text.isEmpty;
+    final canSave    = _activePlace != null;
+    final hasSaved   = widget.savedHome != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,14 +182,23 @@ class _AddressSearchState extends State<AddressSearch> {
                   onChanged: _onChanged,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: Icon(
-                  Icons.home_rounded,
-                  size: 18,
-                  color: widget.current != null ? AppTheme.accent : AppTheme.textMuted,
-                ),
+
+              // ── Trailing actions ───────────────────────────────────────
+              _ActionIcon(
+                icon: Icons.add_rounded,
+                enabled: canSave,
+                tooltip: canSave ? 'Save as home' : 'Pick an address first',
+                onTap: _saveActivePlace,
               ),
+              _ActionIcon(
+                icon: Icons.home_rounded,
+                enabled: hasSaved,
+                tooltip: hasSaved
+                    ? 'Use saved home — ${widget.savedHome!.label}'
+                    : 'No saved home yet',
+                onTap: _useSavedHome,
+              ),
+              const SizedBox(width: 6),
             ],
           ),
         ),
@@ -194,6 +251,44 @@ class _AddressSearchState extends State<AddressSearch> {
             ),
           ),
       ],
+    );
+  }
+}
+
+// ── Sub-widgets ───────────────────────────────────────────────────────────────
+
+/// Compact tappable icon for the search bar's trailing action area. Renders in
+/// accent when [enabled] and muted grey otherwise, with taps inert while
+/// disabled.
+class _ActionIcon extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _ActionIcon({
+    required this.icon,
+    required this.enabled,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkResponse(
+        onTap: enabled ? onTap : null,
+        radius: 20,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          child: Icon(
+            icon,
+            size: 20,
+            color: enabled ? AppTheme.accent : AppTheme.textMuted,
+          ),
+        ),
+      ),
     );
   }
 }

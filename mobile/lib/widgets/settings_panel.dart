@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import '../models/location.dart';
+import '../models/saved_place.dart';
 import 'address_search.dart';
 
 class SettingsPanel extends StatelessWidget {
   final AppLocation? homeLocation;
   final AppLocation? currentLocation;
-  final ValueChanged<AppLocation> onHomeSelected;
+  final SavedPlace? savedHome;
+  final ValueChanged<SavedPlace> onHomeSelected;
+  final ValueChanged<SavedPlace> onSaveHome;
   final VoidCallback onRedetectGps;
 
   const SettingsPanel({
     super.key,
     required this.homeLocation,
     required this.currentLocation,
+    required this.savedHome,
     required this.onHomeSelected,
+    required this.onSaveHome,
     required this.onRedetectGps,
   });
 
@@ -27,7 +32,10 @@ class SettingsPanel extends StatelessWidget {
           const SizedBox(height: 12),
           AddressSearch(
             current: homeLocation,
+            savedHome: savedHome,
             onSelected: onHomeSelected,
+            onSaveHome: onSaveHome,
+            onSelectHome: onHomeSelected,
           ),
           const SizedBox(height: 16),
           Row(
