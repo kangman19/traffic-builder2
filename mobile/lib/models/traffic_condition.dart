@@ -14,9 +14,9 @@ extension TrafficStatusX on TrafficStatus {
   /// Short description shown below the large ETA figure.
   String get statusLine {
     switch (this) {
-      case TrafficStatus.calm:   return 'Clear Traffic / On Time';
-      case TrafficStatus.bookey: return 'Moderate Traffic / Delays Possible';
-      case TrafficStatus.ggs:    return 'Heavy Traffic / Major Delays';
+      case TrafficStatus.calm:   return 'Calm';
+      case TrafficStatus.bookey: return 'Bookey';
+      case TrafficStatus.ggs:    return "GG's";
     }
   }
 

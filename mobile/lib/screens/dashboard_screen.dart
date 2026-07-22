@@ -83,7 +83,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final serverReachable = await _sessionSvc.checkHealth();
     if (!serverReachable) {
       setState(() => _connecting = false);
-      _showError('Server unreachable at ${AppConfig.backendBaseUrl}\nRun: cd server && yarn dev');
+      _showError('Server unreachable at ${AppConfig.backendBaseUrl}\nRun: cd server && npm run dev');
       return;
     }
 

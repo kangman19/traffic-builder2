@@ -131,7 +131,7 @@ void _onServiceStart(ServiceInstance service) async {
 
     // 1. Refresh the persistent foreground-service notification.
     updateMonitoringNotif(
-      'ETA ${c.etaMinutes}  ·  Delay ${c.delayShort}  ·  Arrives ${c.arrivalTime}',
+      'ETA ${c.etaMinutes}  ·  Delay ${c.delayShort}  ·  Arrives ${c.arrivalTime} · Status: ${c.status.label}',
     );
 
     // 2. Heads-up alert on status change — fired directly from this isolate.

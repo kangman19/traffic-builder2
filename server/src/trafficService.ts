@@ -46,6 +46,20 @@ const updateCallbacks = new Map<string, (update: TrafficUpdate) => void>();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+// The cooldown and the tick interval are both derived from
+// notificationFrequencyMinutes, so a cooldown of exactly one interval expires at
+// the same instant the tick fires — a race that suppresses a real status change
+// until the following cycle. Two things keep the cooldown strictly under the
+// interval:
+//
+//   - Jitter is one-sided (never positive). It exists to decorrelate alert
+//     timing across sessions, which only requires pulling the cooldown earlier;
+//     pushing it later has no upside and was the sole cause of the race.
+//   - The safety buffer guarantees a floor on the margin, since a jitter draw
+//     near zero would otherwise leave the cooldown landing on the tick.
+const COOLDOWN_JITTER_MAX_MS   = 60_000;
+const COOLDOWN_SAFETY_BUFFER_MS = 15_000;
+
 function formatMinutes(seconds: number): string {
   return `${Math.round(seconds / 60)} mins`;
 }
@@ -55,8 +69,9 @@ function shouldNotify(session: SessionState, newStatus: TrafficStatus): boolean 
   if (newStatus === session.previousStatus) return false;
 
   const cooldownMs =
-    session.notificationFrequencyMinutes * 60_000 +
-    (Math.random() * 60 - 30) * 1_000; // ±30 s jitter
+    session.notificationFrequencyMinutes * 60_000 -
+    Math.random() * COOLDOWN_JITTER_MAX_MS - // 0–60 s, never positive
+    COOLDOWN_SAFETY_BUFFER_MS;
 
   if (session.lastNotificationTime && Date.now() - session.lastNotificationTime < cooldownMs) {
     return false;
