@@ -134,9 +134,13 @@ class _AddressSearchState extends State<AddressSearch> {
 
   @override
   Widget build(BuildContext context) {
-    final showHint   = widget.current != null && !_focused && _controller.text.isEmpty;
-    final canSave    = _activePlace != null;
-    final hasSaved   = widget.savedHome != null;
+    final showHint = widget.current != null && !_focused && _controller.text.isEmpty;
+    final hasSaved = widget.savedHome != null;
+
+    // Saving is only meaningful for a resolved place that isn't already the
+    // stored home — re-saving an identical place is a no-op write, so the
+    // affordance goes inert rather than offering a misleading "Saved" toast.
+    final canSave = _activePlace != null && _activePlace != widget.savedHome;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -187,7 +191,11 @@ class _AddressSearchState extends State<AddressSearch> {
               _ActionIcon(
                 icon: Icons.add_rounded,
                 enabled: canSave,
-                tooltip: canSave ? 'Save as home' : 'Pick an address first',
+                tooltip: canSave
+                    ? 'Save as home'
+                    : _activePlace != null
+                        ? 'Already your saved home'
+                        : 'Pick an address first',
                 onTap: _saveActivePlace,
               ),
               _ActionIcon(
